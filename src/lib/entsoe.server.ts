@@ -116,7 +116,10 @@ export async function fetchDayAheadPrices(zone: ZoneCode, dayISO: string, demo =
     return { data: { zone, points }, source: "demo", fetched_at: new Date().toISOString() };
   }
   try {
-    const start = new Date(dayISO + "T00:00:00Z");
+    // SEEPEX / SEE delivery days are CET/CEST (Europe/Belgrade, UTC+1 or +2).
+    // Build the proper local-day window so we return exactly the 24 hours of dayISO.
+    const offsetH = cetOffsetHours(dayISO); // 1 in winter, 2 in DST
+    const start = new Date(Date.parse(dayISO + "T00:00:00Z") - offsetH * 3600_000);
     const end = new Date(start.getTime() + 24 * 3600_000);
     const xml = await entsoeRaw({
       documentType: ENTSOE_DOCUMENT_TYPES.day_ahead_prices,
@@ -125,10 +128,19 @@ export async function fetchDayAheadPrices(zone: ZoneCode, dayISO: string, demo =
       periodStart: ymdh(start),
       periodEnd: ymdh(end),
     });
-    const series = parseTimeSeriesHourly(xml).map(p => ({ ts: p.ts, price: p.value }));
+    // Keep only the 24 points falling inside the requested CET delivery day.
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    const series = parseTimeSeriesHourly(xml)
+      .filter(p => {
+        const t = Date.parse(p.ts);
+        return t >= startMs && t < endMs;
+      })
+      .map(p => ({ ts: p.ts, price: p.value }));
     const payload: PriceSeries = { zone, points: series };
     await cacheSet(key, payload);
     return { data: payload, source: series.length ? "live" : "empty", fetched_at: new Date().toISOString() };
+
   } catch (e) {
     const reason = e instanceof Error ? e.message : "error";
     const points = demoHourlyPrices(zone, dayISO);
