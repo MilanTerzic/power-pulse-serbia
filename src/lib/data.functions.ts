@@ -120,6 +120,46 @@ export const getFlows = createServerFn({ method: "GET" })
     return { day: days[0], rows: routes.map((r, i) => ({ ...r, ...results[i] })) };
   });
 
+// Cross-border flow analytics for Serbia. Both directions per border + capacity.
+const RS_BORDERS: ZoneCode[] = ["HU", "RO", "BG", "HR", "ME", "MK", "AL"];
+
+export const getFlowAnalytics = createServerFn({ method: "GET" })
+  .inputValidator((data: RangeInput) => data ?? {})
+  .handler(async ({ data }) => {
+    const days = expandRange(data?.from, data?.to, data?.day);
+    const borders = await Promise.all(RS_BORDERS.map(async neighbour => {
+      // import = neighbour -> RS, export = RS -> neighbour
+      const impParts = await Promise.all(days.map(d => fetchPhysicalFlows(neighbour, "RS", d)));
+      const expParts = await Promise.all(days.map(d => fetchPhysicalFlows("RS", neighbour, d)));
+      const capImp = await fetchExplicitAllocation(neighbour, "RS", "daily", days[0]);
+      const capExp = await fetchExplicitAllocation("RS", neighbour, "daily", days[0]);
+
+      const impByTs = new Map<string, number>();
+      const expByTs = new Map<string, number>();
+      for (const r of impParts) for (const p of r.data.points) impByTs.set(p.ts, (impByTs.get(p.ts) ?? 0) + (Number.isFinite(p.mw) ? p.mw : 0));
+      for (const r of expParts) for (const p of r.data.points) expByTs.set(p.ts, (expByTs.get(p.ts) ?? 0) + (Number.isFinite(p.mw) ? p.mw : 0));
+
+      const allTs = Array.from(new Set([...impByTs.keys(), ...expByTs.keys()])).sort();
+      const hourly = allTs.map(ts => {
+        const imp = impByTs.get(ts) ?? 0;
+        const exp = expByTs.get(ts) ?? 0;
+        return { ts, imp_mw: imp, exp_mw: exp, net_mw: imp - exp };
+      });
+
+      return {
+        neighbour,
+        hourly,
+        capacity_imp_mw: capImp.data.offered_mw,
+        capacity_exp_mw: capExp.data.offered_mw,
+        source_imp: impParts[0]?.source ?? "empty",
+        source_exp: expParts[0]?.source ?? "empty",
+        cap_source: capImp.source,
+        fetched_at: impParts[0]?.fetched_at ?? new Date().toISOString(),
+      };
+    }));
+    return { from: days[0], to: days[days.length - 1], borders, fetched_at: new Date().toISOString() };
+  });
+
 export const getCapacity = createServerFn({ method: "GET" })
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
