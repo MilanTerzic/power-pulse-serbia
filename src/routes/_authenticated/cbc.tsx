@@ -2,22 +2,25 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  getCBCComparison, getResalePnL, listPositions, upsertPosition, deletePosition,
+  getCBCComparison, getResalePnL, getMonthlyResaleBreakdown,
+  listPositions, upsertPosition, deletePosition,
 } from "@/lib/data.functions";
 import { TopBar } from "@/components/top-bar";
 import { Panel } from "@/components/panel";
+import { KPI } from "@/components/kpi";
 import { DataBadge } from "@/components/data-badge";
-import { fmtPrice, fmtEur, fmtMW, downloadCSV } from "@/lib/format";
+import { fmtPrice, fmtEur, fmtMW, fmtNum, downloadCSV } from "@/lib/format";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, Pencil, Download } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Plus, Trash2, Pencil, Download, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { useDateRange } from "@/lib/date-range";
 
 export const Route = createFileRoute("/_authenticated/cbc")({
   head: () => ({ meta: [{ title: "CBC Capacity Resale — SEE Trading Desk" }] }),
@@ -27,18 +30,18 @@ export const Route = createFileRoute("/_authenticated/cbc")({
 function CBCPage() {
   return (
     <>
-      <TopBar title="CBC Capacity Resale" subtitle="Annual vs Monthly vs Daily — resell PnL & recommendations" />
+      <TopBar title="CBC Capacity Resale" subtitle="Annual vs Monthly vs Daily — per-month resell PnL & recommendations" />
       <div className="p-6">
-        <Tabs defaultValue="comparison">
+        <Tabs defaultValue="pnl">
           <TabsList>
-            <TabsTrigger value="comparison">Comparison</TabsTrigger>
             <TabsTrigger value="pnl">Resale PnL</TabsTrigger>
+            <TabsTrigger value="comparison">Comparison</TabsTrigger>
             <TabsTrigger value="predictor">Predictor</TabsTrigger>
             <TabsTrigger value="manual">Manual Inputs</TabsTrigger>
             <TabsTrigger value="diag">Diagnostics</TabsTrigger>
           </TabsList>
+          <TabsContent value="pnl" className="mt-4"><PnLBreakdown /></TabsContent>
           <TabsContent value="comparison" className="mt-4"><Comparison /></TabsContent>
-          <TabsContent value="pnl" className="mt-4"><PnL /></TabsContent>
           <TabsContent value="predictor" className="mt-4"><Predictor /></TabsContent>
           <TabsContent value="manual" className="mt-4"><Manual /></TabsContent>
           <TabsContent value="diag" className="mt-4"><Diag /></TabsContent>
@@ -47,6 +50,259 @@ function CBCPage() {
     </>
   );
 }
+
+// ============================================================================
+// Resale PnL — per-position monthly breakdown
+// ============================================================================
+
+type SellAs = "monthly" | "daily" | "annual";
+
+function PnLBreakdown() {
+  const fn = useServerFn(getMonthlyResaleBreakdown);
+  const { range } = useDateRange();
+  const q = useQuery({
+    queryKey: ["cbc_breakdown", range.from, range.to],
+    queryFn: () => fn({ data: { from: range.from, to: range.to } }),
+  });
+
+  // sell-as selection: { [position_id]: { [`${year}-${month}`]: SellAs } }
+  const [sellAs, setSellAs] = useState<Record<string, Record<string, SellAs>>>({});
+  const positions = q.data?.positions ?? [];
+
+  // Helper: resolve effective resale price for a row given user choice
+  const resolveRow = (
+    pos: (typeof positions)[number],
+    row: (typeof positions)[number]["rows"][number],
+    mode: SellAs,
+  ) => {
+    let price: number | null = null;
+    if (mode === "monthly") price = row.monthly_price;
+    else if (mode === "daily") price = row.daily_price;
+    else if (mode === "annual") price = pos.annual_current_price;
+    if (price == null) return { mode, price: null, spread: null, pnl: null };
+    const spread = price - pos.annual_booked_price;
+    const pnl = spread * pos.booked_mw * row.hours;
+    return { mode, price, spread, pnl };
+  };
+
+  const getMode = (posId: string, key: string): SellAs =>
+    sellAs[posId]?.[key] ?? "monthly";
+
+  const setMode = (posId: string, key: string, mode: SellAs) =>
+    setSellAs(s => ({ ...s, [posId]: { ...(s[posId] ?? {}), [key]: mode } }));
+
+  // Portfolio aggregates
+  const agg = useMemo(() => {
+    let totalPnL = 0;
+    let calculated = 0;
+    let missing = 0;
+    for (const pos of positions) {
+      for (const row of pos.rows) {
+        const mode = getMode(pos.position_id, `${row.year}-${row.month}`);
+        const r = resolveRow(pos, row, mode);
+        if (r.pnl == null) missing++;
+        else { totalPnL += r.pnl; calculated++; }
+      }
+    }
+    return { totalPnL, calculated, missing };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positions, sellAs]);
+
+  const rangeLabel = range.from === range.to ? range.from : `${range.from} → ${range.to}`;
+  const posSummary = positions.map(p => `${p.from}→${p.to} ${fmtNum(p.booked_mw, 0)} MW`).join(", ") || "—";
+
+  return (
+    <div className="space-y-5">
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KPI
+          label="Portfolio PnL"
+          value={<span className={agg.totalPnL >= 0 ? "text-success" : "text-destructive"}>{fmtEur(agg.totalPnL, 0)}</span>}
+          sub={`EUR · ${rangeLabel}`}
+          accent={agg.totalPnL >= 0 ? "success" : "destructive"}
+        />
+        <KPI
+          label="Positions"
+          value={positions.length}
+          sub={posSummary}
+          accent="info"
+        />
+        <KPI
+          label="Calculated rows"
+          value={agg.calculated}
+          sub={agg.missing ? `${agg.missing} missing price rows` : "All months priced"}
+          accent={agg.missing ? "warning" : "success"}
+        />
+        <KPI
+          label="Formula"
+          value={<span className="text-base font-mono">spread × MW × hours</span>}
+          sub="spread = selected resale price − annual"
+          accent="muted"
+        />
+      </div>
+
+      {q.isLoading && <Panel title="Loading…"><div className="text-sm text-muted-foreground py-3">Fetching positions and prices…</div></Panel>}
+
+      {!q.isLoading && positions.length === 0 && (
+        <Panel title="No positions">
+          <div className="text-sm text-muted-foreground py-3">Add positions in <span className="font-medium">Manual Inputs</span> to see monthly resale PnL.</div>
+        </Panel>
+      )}
+
+      {/* Per-position cards */}
+      {positions.map(pos => (
+        <PositionBreakdownCard
+          key={pos.position_id}
+          pos={pos}
+          getMode={mode => mode}
+          modeFor={(key: string) => getMode(pos.position_id, key)}
+          setModeFor={(key, mode) => setMode(pos.position_id, key, mode)}
+          resolve={resolveRow}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PositionBreakdownCard({
+  pos, modeFor, setModeFor, resolve,
+}: {
+  pos: {
+    position_id: string; label: string; from: string; to: string;
+    booked_mw: number; annual_booked_price: number;
+    annual_current_price: number | null; source_annual: string;
+    year: number; start_date: string; end_date: string;
+    rows: Array<{
+      year: number; month: number; monthLabel: string;
+      date_from: string; date_to: string; hours: number;
+      monthly_price: number | null; daily_price: number | null;
+      source_monthly: string; source_daily: string;
+    }>;
+  };
+  getMode: (m: SellAs) => SellAs;
+  modeFor: (key: string) => SellAs;
+  setModeFor: (key: string, mode: SellAs) => void;
+  resolve: (pos: never, row: never, mode: SellAs) => { mode: SellAs; price: number | null; spread: number | null; pnl: number | null };
+}) {
+  const rowsResolved = pos.rows.map(r => {
+    const mode = modeFor(`${r.year}-${r.month}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const x = resolve(pos as any, r as any, mode);
+    return { ...r, ...x };
+  });
+  const subTotal = rowsResolved.reduce((s, r) => s + (r.pnl ?? 0), 0);
+  const missing = rowsResolved.filter(r => r.pnl == null).length;
+
+  const csvRows = rowsResolved.map(r => ({
+    month: `${r.year}-${String(r.month).padStart(2, "0")}`,
+    date_from: r.date_from, date_to: r.date_to, hours: r.hours,
+    annual_booked: pos.annual_booked_price,
+    sell_as: r.mode,
+    monthly: r.monthly_price ?? "",
+    daily: r.daily_price ?? "",
+    annual_current: pos.annual_current_price ?? "",
+    spread: r.spread ?? "",
+    pnl_eur: r.pnl ?? "",
+  }));
+
+  return (
+    <Panel
+      title={
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-medium">{pos.label}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {pos.from} → {pos.to} · {fmtNum(pos.booked_mw, 1)} MW booked annual capacity · annual ref {fmtPrice(pos.annual_booked_price)}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="font-mono text-[10px]">{pos.year}</Badge>
+            <Badge variant="outline" className={`font-mono text-[10px] ${subTotal >= 0 ? "border-success/40 text-success" : "border-destructive/40 text-destructive"}`}>
+              {fmtEur(subTotal, 0)}
+            </Badge>
+            <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => downloadCSV(`pnl-${pos.from}-${pos.to}.csv`, csvRows as never)}>
+              <Download className="w-3.5 h-3.5" />CSV
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      {missing > 0 && (
+        <div className="flex items-start gap-2 text-[11px] text-warning bg-warning/10 border border-warning/30 rounded p-2 mb-2">
+          <AlertTriangle className="w-3.5 h-3.5 mt-0.5" />
+          <span>{missing} of {rowsResolved.length} months are missing the selected price — PnL excluded for those rows.</span>
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="text-left py-1.5 pr-2">Month</th>
+              <th className="text-left">Date range</th>
+              <th className="text-right">Hours</th>
+              <th className="text-right">Annual</th>
+              <th className="text-left pl-2">Sell as</th>
+              <th className="text-right">Monthly</th>
+              <th className="text-right">Daily</th>
+              <th className="text-right">Spread</th>
+              <th className="text-right">PnL EUR</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rowsResolved.map(r => {
+              const spreadCls = r.spread == null
+                ? "text-muted-foreground"
+                : r.spread >= 0 ? "text-success" : "text-destructive";
+              const pnlCls = r.pnl == null
+                ? "text-muted-foreground"
+                : r.pnl >= 0 ? "text-success" : "text-destructive";
+              return (
+                <tr key={`${r.year}-${r.month}`} className="border-t border-border/60">
+                  <td className="py-1.5 pr-2 font-medium">{r.monthLabel} {r.year}</td>
+                  <td className="text-xs text-muted-foreground num">{r.date_from} → {r.date_to}</td>
+                  <td className="text-right num">{r.hours}</td>
+                  <td className="text-right num">{fmtPrice(pos.annual_booked_price)}</td>
+                  <td className="pl-2">
+                    <Select value={r.mode} onValueChange={v => setModeFor(`${r.year}-${r.month}`, v as SellAs)}>
+                      <SelectTrigger className="h-7 w-[110px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="annual">Annual</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </td>
+                  <td className={`text-right num ${r.monthly_price == null ? "text-muted-foreground" : ""}`}>
+                    {r.monthly_price == null ? "—" : fmtNum(r.monthly_price, 4)}
+                  </td>
+                  <td className={`text-right num ${r.daily_price == null ? "text-muted-foreground" : ""}`}>
+                    {r.daily_price == null ? "—" : fmtNum(r.daily_price, 4)}
+                  </td>
+                  <td className={`text-right num font-medium ${spreadCls}`}>
+                    {r.spread == null ? "—" : fmtNum(r.spread, 4)}
+                  </td>
+                  <td className={`text-right num font-semibold ${pnlCls}`}>
+                    {r.pnl == null ? "—" : fmtEur(r.pnl, 0)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-border">
+              <td colSpan={8} className="py-2 text-right text-xs uppercase tracking-wider text-muted-foreground">Subtotal</td>
+              <td className={`text-right num font-semibold ${subTotal >= 0 ? "text-success" : "text-destructive"}`}>{fmtEur(subTotal, 0)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
+// ============================================================================
+// Comparison / Predictor / Diag (unchanged behaviour)
+// ============================================================================
 
 function Comparison() {
   const fn = useServerFn(getCBCComparison);
@@ -80,36 +336,6 @@ function Comparison() {
   );
 }
 
-function PnL() {
-  const fn = useServerFn(getResalePnL);
-  const q = useQuery({ queryKey: ["cbc_pnl"], queryFn: () => fn({ data: {} }) });
-  const rows = q.data?.rows ?? [];
-  return (
-    <Panel title="Resale PnL per position" actions={<Button size="sm" variant="ghost" className="gap-1.5" onClick={() => downloadCSV("resale-pnl.csv", rows as never)}><Download className="w-3.5 h-3.5" />CSV</Button>}>
-      <table className="w-full text-sm">
-        <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          <tr><th className="text-left py-1.5">Position</th><th className="text-right">MW</th><th className="text-right">Booked €</th><th className="text-right">Monthly €</th><th className="text-right">Daily €</th><th className="text-right">PnL monthly</th><th className="text-right">PnL daily</th><th>Recommendation</th></tr>
-        </thead>
-        <tbody>
-          {rows.map(r => (
-            <tr key={r.position_id} className="border-t border-border/60">
-              <td className="py-1.5">{r.label}</td>
-              <td className="text-right num">{fmtMW(r.booked_mw)}</td>
-              <td className="text-right num">{fmtPrice(r.annual_booked_price)}</td>
-              <td className="text-right num">{fmtPrice(r.monthly_price)}</td>
-              <td className="text-right num">{fmtPrice(r.daily_price)}</td>
-              <td className={`text-right num ${(r.pnl_monthly ?? 0) > 0 ? "text-success" : "text-destructive"}`}>{fmtEur(r.pnl_monthly, 0)}</td>
-              <td className={`text-right num ${(r.pnl_daily ?? 0) > 0 ? "text-success" : "text-destructive"}`}>{fmtEur(r.pnl_daily, 0)}</td>
-              <td><RecBadge rec={r.recommendation} /></td>
-            </tr>
-          ))}
-          {rows.length === 0 && <tr><td colSpan={8} className="text-center text-muted-foreground py-6 text-sm">No positions. Add some in Manual Inputs.</td></tr>}
-        </tbody>
-      </table>
-    </Panel>
-  );
-}
-
 function RecBadge({ rec }: { rec: string }) {
   const map: Record<string, { label: string; cls: string }> = {
     resell_monthly: { label: "RESELL MONTHLY", cls: "bg-success/15 text-success border-success/30" },
@@ -125,13 +351,11 @@ function Predictor() {
   const fn = useServerFn(getCBCComparison);
   const q = useQuery({ queryKey: ["cbc_cmp"], queryFn: () => fn({ data: {} }) });
   const rows = q.data?.rows ?? [];
-  // Simple transparent predictor: which product looked cheaper most often vs annual
   return (
     <Panel title="Predictor — daily vs monthly bias">
       <p className="text-xs text-muted-foreground mb-3">
         Heuristic: compares current monthly and daily prices vs the annual reference. The product
-        with the larger positive spread vs annual is the better resell candidate today. Combine with
-        the historical spread before deciding.
+        with the larger positive spread vs annual is the better resell candidate today.
       </p>
       <table className="w-full text-sm">
         <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -157,6 +381,10 @@ function Predictor() {
   );
 }
 
+// ============================================================================
+// Manual Inputs (positions CRUD)
+// ============================================================================
+
 const DEFAULT_POSITIONS = [
   { position_name: "HR → BA annual 2026", border_from: "HR", border_to: "BA", product_type: "annual", booked_mw: 15, annual_booked_price: 0.35, start_date: "2026-01-01", end_date: "2026-12-31", fees: 0, preferred_resale_mode: "auto", notes: "Seeded default" },
   { position_name: "BA → ME annual 2026", border_from: "BA", border_to: "ME", product_type: "annual", booked_mw: 5,  annual_booked_price: 3.44, start_date: "2026-01-01", end_date: "2026-12-31", fees: 0, preferred_resale_mode: "auto", notes: "Seeded default" },
@@ -168,7 +396,7 @@ function Manual() {
   const delFn = useServerFn(deletePosition);
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["positions"], queryFn: () => listFn() });
-  const del = useMutation({ mutationFn: (id: string) => delFn({ data: { id } }), onSuccess: () => { toast.success("Position deleted"); qc.invalidateQueries({ queryKey: ["positions"] }); qc.invalidateQueries({ queryKey: ["cbc_pnl"] }); } });
+  const del = useMutation({ mutationFn: (id: string) => delFn({ data: { id } }), onSuccess: () => { toast.success("Position deleted"); qc.invalidateQueries({ queryKey: ["positions"] }); qc.invalidateQueries({ queryKey: ["cbc_pnl"] }); qc.invalidateQueries({ queryKey: ["cbc_breakdown"] }); } });
 
   const seeded = useRef(false);
   useEffect(() => {
@@ -180,6 +408,7 @@ function Manual() {
           for (const p of DEFAULT_POSITIONS) await upFn({ data: p });
           qc.invalidateQueries({ queryKey: ["positions"] });
           qc.invalidateQueries({ queryKey: ["cbc_pnl"] });
+          qc.invalidateQueries({ queryKey: ["cbc_breakdown"] });
         } catch (e) {
           console.warn("seed positions failed", e);
         }
@@ -189,7 +418,7 @@ function Manual() {
 
 
   return (
-    <Panel title="Portfolio positions" actions={<PositionDialog onSaved={() => { qc.invalidateQueries({ queryKey: ["positions"] }); qc.invalidateQueries({ queryKey: ["cbc_pnl"] }); }} />}>
+    <Panel title="Portfolio positions" actions={<PositionDialog onSaved={() => { qc.invalidateQueries({ queryKey: ["positions"] }); qc.invalidateQueries({ queryKey: ["cbc_pnl"] }); qc.invalidateQueries({ queryKey: ["cbc_breakdown"] }); }} />}>
       <table className="w-full text-sm">
         <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
           <tr><th className="text-left py-1.5">Name</th><th>Border</th><th>Product</th><th className="text-right">MW</th><th className="text-right">Booked €</th><th>Period</th><th>Resale mode</th><th></th></tr>
@@ -205,7 +434,7 @@ function Manual() {
               <td className="text-xs text-muted-foreground num">{p.start_date} → {p.end_date}</td>
               <td className="text-xs">{p.preferred_resale_mode}</td>
               <td className="text-right space-x-1">
-                <PositionDialog existing={p} onSaved={() => { qc.invalidateQueries({ queryKey: ["positions"] }); qc.invalidateQueries({ queryKey: ["cbc_pnl"] }); }} />
+                <PositionDialog existing={p} onSaved={() => { qc.invalidateQueries({ queryKey: ["positions"] }); qc.invalidateQueries({ queryKey: ["cbc_pnl"] }); qc.invalidateQueries({ queryKey: ["cbc_breakdown"] }); }} />
                 <Button size="icon" variant="ghost" onClick={() => del.mutate(p.id)}><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
               </td>
             </tr>
@@ -300,25 +529,34 @@ function PositionDialog({ existing, onSaved }: { existing?: Position; onSaved: (
 }
 
 function Diag() {
-  const fn = useServerFn(getCBCComparison);
-  const q = useQuery({ queryKey: ["cbc_cmp"], queryFn: () => fn({ data: {} }) });
-  const sourceCount: Record<string, number> = {};
-  for (const r of q.data?.rows ?? []) {
-    for (const v of Object.values(r.sources)) sourceCount[v] = (sourceCount[v] ?? 0) + 1;
-  }
+  const fn = useServerFn(getResalePnL);
+  const q = useQuery({ queryKey: ["cbc_pnl"], queryFn: () => fn({ data: {} }) });
+  const rows = q.data?.rows ?? [];
   return (
     <div className="grid md:grid-cols-2 gap-4">
-      <Panel title="Source breakdown">
-        <ul className="text-sm space-y-1.5">
-          {Object.entries(sourceCount).map(([k, v]) => (
-            <li key={k} className="flex justify-between"><span><DataBadge source={k} /></span><span className="num">{v}</span></li>
-          ))}
-          {Object.keys(sourceCount).length === 0 && <li className="text-muted-foreground">No data yet — run the Comparison tab.</li>}
-        </ul>
+      <Panel title="Single-snapshot PnL (legacy)">
+        <table className="w-full text-xs">
+          <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr><th className="text-left py-1.5">Position</th><th className="text-right">MW</th><th className="text-right">Monthly €</th><th className="text-right">Daily €</th><th className="text-right">PnL M</th><th className="text-right">PnL D</th></tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.position_id} className="border-t border-border/60">
+                <td className="py-1.5">{r.label}</td>
+                <td className="text-right num">{fmtMW(r.booked_mw)}</td>
+                <td className="text-right num">{fmtPrice(r.monthly_price)}</td>
+                <td className="text-right num">{fmtPrice(r.daily_price)}</td>
+                <td className={`text-right num ${(r.pnl_monthly ?? 0) > 0 ? "text-success" : "text-destructive"}`}>{fmtEur(r.pnl_monthly, 0)}</td>
+                <td className={`text-right num ${(r.pnl_daily ?? 0) > 0 ? "text-success" : "text-destructive"}`}>{fmtEur(r.pnl_daily, 0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </Panel>
       <Panel title="Notes">
         <p className="text-sm text-muted-foreground">
-          Live A25 monthly/annual prices may be returned as totals depending on TSO publication. Treat the unit warnings as cues to verify the source before booking.
+          Monthly & annual A25 prices from ENTSO-E may be published as totals (EUR) rather than EUR/MWh depending on TSO — verify before booking.
+          The Resale PnL tab fetches the latest monthly / daily / annual prices per month from ENTSO-E with caching.
         </p>
       </Panel>
     </div>
