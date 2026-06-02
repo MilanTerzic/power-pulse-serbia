@@ -21,7 +21,8 @@ function CapacityPage() {
   const [demo, setDemo] = useState(false);
   const q = useQuery({ queryKey: ["capacity", demo], queryFn: () => fn({ data: { demo } }) });
 
-  const grouped: Record<string, { from: string; to: string; daily?: typeof q.data["rows"][number]; monthly?: typeof q.data["rows"][number]; annual?: typeof q.data["rows"][number] }> = {};
+  type CapRow = NonNullable<typeof q.data>["rows"][number];
+  const grouped: Record<string, { from: string; to: string; daily?: CapRow; monthly?: CapRow; annual?: CapRow }> = {};
   for (const [a, b] of BORDERS) grouped[`${a}_${b}`] = { from: a, to: b };
   for (const row of q.data?.rows ?? []) {
     const key = `${row.data.from}_${row.data.to}`;

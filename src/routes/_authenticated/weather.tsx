@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_authenticated/weather")({
 
 function WeatherPage() {
   const fn = useServerFn(getWeather);
-  const q = useQuery({ queryKey: ["weather"], queryFn: () => fn() });
+  const q = useQuery({ queryKey: ["weather"], queryFn: () => fn({ data: {} }) });
 
   return (
     <>
