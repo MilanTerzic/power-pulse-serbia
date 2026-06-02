@@ -8,6 +8,27 @@ import {
 
 const API_BASE = "https://web-api.tp.entsoe.eu/api";
 const DEFAULT_TTL = 1800;
+// Per-source TTLs (seconds).
+const TTL = {
+  da_today: 30 * 60,         // today / future: refresh every 30 min
+  da_past: 7 * 24 * 3600,    // past days: immutable, keep 7 days
+  flow_today: 30 * 60,
+  flow_past: 7 * 24 * 3600,
+  cap_today: 30 * 60,
+  cap_past: 7 * 24 * 3600,
+  outages: 60 * 60,          // 1h
+  loadgen_today: 30 * 60,
+  loadgen_past: 24 * 3600,
+} as const;
+
+// Returns true when dayISO is strictly before today (UTC) — i.e. immutable historical data.
+function isPastDay(dayISO: string): boolean {
+  const today = new Date().toISOString().slice(0, 10);
+  return dayISO < today;
+}
+function ttlFor(today: number, past: number, dayISO: string): number {
+  return isPastDay(dayISO) ? past : today;
+}
 
 function token(): string | null {
   return process.env.ENTSOE_API_TOKEN ?? null;
