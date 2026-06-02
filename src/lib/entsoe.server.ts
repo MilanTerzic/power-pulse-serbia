@@ -171,7 +171,7 @@ export async function fetchDayAheadPrices(zone: ZoneCode, dayISO: string, demo =
       })
       .map(p => ({ ts: p.ts, price: p.value }));
     const payload: PriceSeries = { zone, points: series };
-    await cacheSet(key, payload);
+    await cacheSet(key, payload, ttlFor(TTL.da_today, TTL.da_past, dayISO));
     return { data: payload, source: series.length ? "live" : "empty", fetched_at: new Date().toISOString() };
 
   } catch (e) {
