@@ -518,16 +518,6 @@ function Comparison() {
   );
 }
 
-function RecBadge({ rec }: { rec: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    resell_monthly: { label: "RESELL MONTHLY", cls: "bg-success/15 text-success border-success/30" },
-    resell_daily:   { label: "RESELL DAILY",   cls: "bg-success/15 text-success border-success/30" },
-    keep:           { label: "KEEP",           cls: "bg-info/15 text-info border-info/30" },
-    manual:         { label: "MANUAL REVIEW",  cls: "bg-warning/15 text-warning border-warning/30" },
-  };
-  const v = map[rec] ?? map.manual;
-  return <Badge variant="outline" className={`${v.cls} text-[10px] font-mono`}>{v.label}</Badge>;
-}
 
 function Predictor() {
   const fn = useServerFn(getMonthlyResaleBreakdown);
