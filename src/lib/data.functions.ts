@@ -597,9 +597,9 @@ export const runForecastV2 = createServerFn({ method: "POST" })
         const balance = await fetchLoadGen("RS", historyTo).catch(() => null);
         if (balance?.data?.length) {
           const last = balance.data.slice(-24);
-          const avgLoad = last.reduce((s, p) => s + (p.load ?? 0), 0) / Math.max(1, last.length);
+          const avgLoad = last.reduce((s, p) => s + (p.load_mw ?? 0), 0) / Math.max(1, last.length);
           const prevDay = balance.data.slice(-48, -24);
-          const prevLoad = prevDay.reduce((s, p) => s + (p.load ?? 0), 0) / Math.max(1, prevDay.length);
+          const prevLoad = prevDay.reduce((s, p) => s + (p.load_mw ?? 0), 0) / Math.max(1, prevDay.length);
           const delta = prevLoad ? (avgLoad - prevLoad) / prevLoad : 0;
           drivers.push({
             key: "load", label: "Load trend (RS, last 24h vs prev)",
@@ -608,22 +608,22 @@ export const runForecastV2 = createServerFn({ method: "POST" })
             impact: delta > 0.02 ? "bullish" : delta < -0.02 ? "bearish" : "neutral",
             explain: `${(delta * 100).toFixed(1)}% vs previous day`,
           });
-          fundamentalAdj += delta * 8; // €/MWh per 1.0 load change
+          fundamentalAdj += delta * 8;
         } else {
           drivers.push({ key: "load", label: "Load", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
         }
       } catch { /* ignore */ }
 
       try {
-        const out = await fetchOutages("RS", historyTo).catch(() => null);
-        if (out?.data?.length) {
-          const total = out.data.reduce((s, o) => s + (o.unavailable_mw ?? 0), 0);
+        const outRes = await fetchOutages("RS", historyTo).catch(() => null);
+        if (outRes?.data?.length) {
+          const total = outRes.data.reduce((s, o) => s + (o.mw ?? 0), 0);
           drivers.push({
             key: "outages", label: "Generation outages (RS)",
             value: `${total.toFixed(0)} MW unavailable`,
             trend: total > 500 ? "up" : "flat",
             impact: total > 500 ? "bullish" : "neutral",
-            explain: `${out.data.length} active outage records`,
+            explain: `${outRes.data.length} active outage records`,
           });
           fundamentalAdj += Math.min(8, total / 250);
         } else {
@@ -636,11 +636,11 @@ export const runForecastV2 = createServerFn({ method: "POST" })
           DANUBE_STATION_COORDS["Belgrade"].lat, DANUBE_STATION_COORDS["Belgrade"].lon,
           new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10), historyTo,
         ).catch(() => null);
-        const series = danube?.data?.daily?.river_discharge ?? [];
+        const series = (danube?.data ?? []).map(d => d.discharge_m3s).filter((v): v is number => Number.isFinite(v));
         if (series.length >= 2) {
           const last = series[series.length - 1];
-          const avg = series.reduce((a: number, b: number) => a + b, 0) / series.length;
-          const dev = (last - avg) / avg;
+          const avg = series.reduce((a, b) => a + b, 0) / series.length;
+          const dev = avg > 0 ? (last - avg) / avg : 0;
           drivers.push({
             key: "danube", label: "Danube discharge (Belgrade, 7d)",
             value: `${last.toFixed(0)} m³/s`,
@@ -656,12 +656,13 @@ export const runForecastV2 = createServerFn({ method: "POST" })
 
       try {
         const wx = await fetchWeather("RS", historyTo).catch(() => null);
-        const t = wx?.data?.temp_max;
-        if (t != null) {
+        const temps = (wx?.data ?? []).map(p => p.temp_c).filter((v): v is number => Number.isFinite(v));
+        if (temps.length) {
+          const t = Math.max(...temps);
           const baseTemp = 18;
-          const dd = t < baseTemp ? baseTemp - t : t - 24; // HDD or CDD
+          const dd = t < baseTemp ? baseTemp - t : t - 24;
           drivers.push({
-            key: "weather", label: "Belgrade temp (today)",
+            key: "weather", label: "Belgrade peak temp (today)",
             value: `${t.toFixed(1)} °C`,
             trend: t > 26 ? "up" : t < 5 ? "up" : "flat",
             impact: dd > 5 ? "bullish" : "neutral",
