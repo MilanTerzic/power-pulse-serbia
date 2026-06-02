@@ -87,7 +87,12 @@ function OverviewPage() {
 
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KPI label="SEEPEX today avg" value={fmtPrice(rsAvg)} source={data?.prices?.find(p => p.zone === "RS")?.source} />
+          <KPI
+            label={`SEEPEX baseload · ${range.from === range.to ? range.from : `${range.from} → ${range.to}`}`}
+            value={fmtPrice(rsAvg)}
+            sub={rsPoints.length ? `Avg of ${rsPoints.length} hourly DA prices (€/MWh)` : "No data"}
+            source={data?.prices?.find(p => p.zone === "RS")?.source}
+          />
           <KPI label="Cheapest neighbour" value={lowest ? `${lowest.zone} · ${fmtPrice(lowest.avg)}` : "—"} accent="success" source={lowest?.source} />
           <KPI label="Most expensive neighbour" value={highest ? `${highest.zone} · ${fmtPrice(highest.avg)}` : "—"} accent="destructive" source={highest?.source} />
           <KPI label="Best net import route" value={opportunities[0] ? `${opportunities[0].label}` : "—"} sub={opportunities[0] ? `${fmtPrice(opportunities[0].net)} net` : ""} accent={opportunities[0]?.net > 0 ? "success" : "muted"} source={opportunities[0]?.source} />

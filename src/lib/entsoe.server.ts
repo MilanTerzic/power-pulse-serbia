@@ -22,6 +22,18 @@ function ymdh(d: Date): string {
   return `${y}${M}${D}${h}${m}`;
 }
 
+// Europe/Belgrade UTC offset in hours for a given ISO date (1 in winter, 2 in DST).
+function cetOffsetHours(dayISO: string): number {
+  const noonUtc = new Date(dayISO + "T12:00:00Z");
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Belgrade", timeZoneName: "shortOffset",
+  });
+  const part = fmt.formatToParts(noonUtc).find(p => p.type === "timeZoneName")?.value ?? "GMT+1";
+  const m = /([+-]?\d+)/.exec(part);
+  return m ? parseInt(m[1], 10) : 1;
+
+}
+
 export interface FetchResult<T> {
   data: T;
   source: "live" | "cache" | "demo" | "empty";
@@ -116,7 +128,10 @@ export async function fetchDayAheadPrices(zone: ZoneCode, dayISO: string, demo =
     return { data: { zone, points }, source: "demo", fetched_at: new Date().toISOString() };
   }
   try {
-    const start = new Date(dayISO + "T00:00:00Z");
+    // SEEPEX / SEE delivery days are CET/CEST (Europe/Belgrade, UTC+1 or +2).
+    // Build the proper local-day window so we return exactly the 24 hours of dayISO.
+    const offsetH = cetOffsetHours(dayISO); // 1 in winter, 2 in DST
+    const start = new Date(Date.parse(dayISO + "T00:00:00Z") - offsetH * 3600_000);
     const end = new Date(start.getTime() + 24 * 3600_000);
     const xml = await entsoeRaw({
       documentType: ENTSOE_DOCUMENT_TYPES.day_ahead_prices,
@@ -125,10 +140,19 @@ export async function fetchDayAheadPrices(zone: ZoneCode, dayISO: string, demo =
       periodStart: ymdh(start),
       periodEnd: ymdh(end),
     });
-    const series = parseTimeSeriesHourly(xml).map(p => ({ ts: p.ts, price: p.value }));
+    // Keep only the 24 points falling inside the requested CET delivery day.
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    const series = parseTimeSeriesHourly(xml)
+      .filter(p => {
+        const t = Date.parse(p.ts);
+        return t >= startMs && t < endMs;
+      })
+      .map(p => ({ ts: p.ts, price: p.value }));
     const payload: PriceSeries = { zone, points: series };
     await cacheSet(key, payload);
     return { data: payload, source: series.length ? "live" : "empty", fetched_at: new Date().toISOString() };
+
   } catch (e) {
     const reason = e instanceof Error ? e.message : "error";
     const points = demoHourlyPrices(zone, dayISO);
@@ -148,7 +172,8 @@ export async function fetchPhysicalFlows(from: ZoneCode, to: ZoneCode, dayISO: s
     return { data: { from, to, points: d.map(p => ({ ts: p.ts, mw: p.mw })) }, source: "demo", fetched_at: new Date().toISOString() };
   }
   try {
-    const start = new Date(dayISO + "T00:00:00Z");
+    const offsetH = cetOffsetHours(dayISO);
+    const start = new Date(Date.parse(dayISO + "T00:00:00Z") - offsetH * 3600_000);
     const end = new Date(start.getTime() + 24 * 3600_000);
     const xml = await entsoeRaw({
       documentType: ENTSOE_DOCUMENT_TYPES.physical_flows,
@@ -157,10 +182,15 @@ export async function fetchPhysicalFlows(from: ZoneCode, to: ZoneCode, dayISO: s
       periodStart: ymdh(start),
       periodEnd: ymdh(end),
     });
-    const series = parseTimeSeriesHourly(xml).map(p => ({ ts: p.ts, mw: p.value }));
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    const series = parseTimeSeriesHourly(xml)
+      .filter(p => { const t = Date.parse(p.ts); return t >= startMs && t < endMs; })
+      .map(p => ({ ts: p.ts, mw: p.value }));
     const payload: FlowSeries = { from, to, points: series };
     await cacheSet(key, payload);
     return { data: payload, source: series.length ? "live" : "empty", fetched_at: new Date().toISOString() };
+
   } catch (e) {
     const reason = e instanceof Error ? e.message : "error";
     const d = demoFlow(from, to, dayISO);
