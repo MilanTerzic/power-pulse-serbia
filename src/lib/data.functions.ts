@@ -75,8 +75,20 @@ export const getDashboardSnapshot = createServerFn({ method: "GET" })
 
     const byZone = Object.fromEntries(prices.map(p => [p.zone, p.data.points]));
 
-    return { day: headDay, from: days[0], to: days[days.length - 1], prices, importRoutes, exportRoutes, byZone };
+    // Probe: are tomorrow's DA prices already published? (SEEPEX gate ≈ 12:45 CET)
+    const tomorrow = new Date(Date.parse(headDay + "T00:00:00Z") + 86400_000)
+      .toISOString().slice(0, 10);
+    let tomorrowRS: { day: string; points: Array<{ ts: string; price: number }>; avg: number | null; source: string } | null = null;
+    if (days.length === 1 && headDay === todayISO()) {
+      const r = await fetchDayAheadPrices("RS", tomorrow);
+      const pts = r.data.points;
+      const avg = pts.length ? pts.reduce((a, p) => a + p.price, 0) / pts.length : null;
+      tomorrowRS = { day: tomorrow, points: pts, avg: pts.length >= 20 ? avg : null, source: r.source };
+    }
+
+    return { day: headDay, from: days[0], to: days[days.length - 1], prices, importRoutes, exportRoutes, byZone, tomorrowRS };
   });
+
 
 // Hourly DA price profile (avg per hour 0..23) across the date range, per zone.
 export const getAverageDAProfile = createServerFn({ method: "GET" })
