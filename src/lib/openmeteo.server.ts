@@ -1,5 +1,33 @@
 // Weather + river-discharge: Open-Meteo primary, Visual Crossing fallback.
 import { ZONES, type ZoneCode } from "./markets";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+
+// Per-source TTLs (seconds).
+const WEATHER_TTL_TODAY = 60 * 60;          // 1h for today/future
+const WEATHER_TTL_PAST = 7 * 24 * 3600;     // 7 days for past (immutable)
+const DISCHARGE_TTL = 6 * 3600;             // 6h (river updates daily but cheap to cache)
+
+function isPastDay(dayISO: string): boolean {
+  return dayISO < new Date().toISOString().slice(0, 10);
+}
+
+async function cacheGet<T>(key: string): Promise<T | null> {
+  try {
+    const { data } = await supabaseAdmin.from("api_cache")
+      .select("payload, fetched_at, ttl_seconds").eq("key", key).maybeSingle();
+    if (!data) return null;
+    const age = (Date.now() - new Date(data.fetched_at as string).getTime()) / 1000;
+    if (age > (data.ttl_seconds ?? 1800)) return null;
+    return data.payload as T;
+  } catch { return null; }
+}
+async function cacheSet(key: string, payload: unknown, ttl: number) {
+  try {
+    await supabaseAdmin.from("api_cache").upsert({
+      key, payload: payload as never, fetched_at: new Date().toISOString(), ttl_seconds: ttl,
+    });
+  } catch { /* best-effort */ }
+}
 
 export interface WeatherPoint { ts: string; temp_c: number; wind_ms: number; }
 
