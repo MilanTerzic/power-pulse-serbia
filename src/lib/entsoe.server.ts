@@ -172,7 +172,8 @@ export async function fetchPhysicalFlows(from: ZoneCode, to: ZoneCode, dayISO: s
     return { data: { from, to, points: d.map(p => ({ ts: p.ts, mw: p.mw })) }, source: "demo", fetched_at: new Date().toISOString() };
   }
   try {
-    const start = new Date(dayISO + "T00:00:00Z");
+    const offsetH = cetOffsetHours(dayISO);
+    const start = new Date(Date.parse(dayISO + "T00:00:00Z") - offsetH * 3600_000);
     const end = new Date(start.getTime() + 24 * 3600_000);
     const xml = await entsoeRaw({
       documentType: ENTSOE_DOCUMENT_TYPES.physical_flows,
@@ -181,10 +182,15 @@ export async function fetchPhysicalFlows(from: ZoneCode, to: ZoneCode, dayISO: s
       periodStart: ymdh(start),
       periodEnd: ymdh(end),
     });
-    const series = parseTimeSeriesHourly(xml).map(p => ({ ts: p.ts, mw: p.value }));
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    const series = parseTimeSeriesHourly(xml)
+      .filter(p => { const t = Date.parse(p.ts); return t >= startMs && t < endMs; })
+      .map(p => ({ ts: p.ts, mw: p.value }));
     const payload: FlowSeries = { from, to, points: series };
     await cacheSet(key, payload);
     return { data: payload, source: series.length ? "live" : "empty", fetched_at: new Date().toISOString() };
+
   } catch (e) {
     const reason = e instanceof Error ? e.message : "error";
     const d = demoFlow(from, to, dayISO);
