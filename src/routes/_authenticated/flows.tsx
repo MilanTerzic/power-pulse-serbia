@@ -525,8 +525,8 @@ function Heatmap({ summary }: { summary: Array<{ neighbour: ZoneCode; utilHourly
             <div key={i} className="text-[8px] text-muted-foreground text-center">{i % 6 === 0 ? i : ""}</div>
           ))}
           {summary.map(s => (
-            <>
-              <div key={`l-${s.neighbour}`} className="text-[10px] text-muted-foreground pr-2 flex items-center">{s.neighbour}</div>
+            <Fragment key={s.neighbour}>
+              <div className="text-[10px] text-muted-foreground pr-2 flex items-center">{s.neighbour}</div>
               {s.utilHourly.map((u, i) => (
                 <div key={`${s.neighbour}-${i}`}
                   className="w-[14px] h-[14px] rounded-[2px]"
@@ -534,7 +534,7 @@ function Heatmap({ summary }: { summary: Array<{ neighbour: ZoneCode; utilHourly
                   style={{ background: u == null ? "hsl(var(--muted) / 0.2)" : utilColor(u) }}
                 />
               ))}
-            </>
+            </Fragment>
           ))}
         </div>
         <div className="mt-2 text-[10px] text-muted-foreground">Hours across selected range · color = utilization</div>
