@@ -50,7 +50,7 @@ function statusFor(util: number | null, dataMissing: boolean) {
 }
 
 function utilColor(util: number | null) {
-  if (util == null) return "color-mix(in oklab, var(--muted-foreground) 0.2, transparent)";
+  if (util == null) return "color-mix(in oklab, var(--muted-foreground) 20%, transparent)";
   if (util >= 90) return "oklch(0.62 0.22 25)"; // destructive
   if (util >= 80) return "oklch(0.75 0.16 70)"; // warning
   if (util >= 50) return "oklch(0.72 0.13 200)"; // info
@@ -234,7 +234,7 @@ function FlowsPage() {
                       <stop offset="100%" stopColor="oklch(0.72 0.13 200)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 0.4, transparent)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 40%, transparent)" />
                   <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 10 }} unit=" MW" width={70} />
                   <ReferenceLine y={0} stroke="var(--muted-foreground)" />
@@ -274,7 +274,7 @@ function FlowsPage() {
               {selChartData.length === 0 ? <EmptyState /> : (
                 <ResponsiveContainer width="100%" height={260}>
                   <LineChart data={selChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 0.4, transparent)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 40%, transparent)" />
                     <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis tick={{ fontSize: 10 }} unit=" MW" width={70} />
                     <ReferenceLine y={0} stroke="var(--muted-foreground)" />
@@ -304,7 +304,7 @@ function FlowsPage() {
             {selDuration.length === 0 ? <EmptyState /> : (
               <ResponsiveContainer width="100%" height={260}>
                 <AreaChart data={selDuration}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 0.4, transparent)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 40%, transparent)" />
                   <XAxis dataKey="pct" tick={{ fontSize: 10 }} unit="%" />
                   <YAxis tick={{ fontSize: 10 }} unit=" MW" width={70} />
                   <RTooltip contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", fontSize: 12 }} />
@@ -323,7 +323,7 @@ function FlowsPage() {
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={summary.map(s => ({ name: s.neighbour, util: s.avgUtil ?? 0, max: s.maxUtil ?? 0 }))}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 0.4, transparent)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 40%, transparent)" />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 10 }} unit="%" />
                   <ReferenceLine y={80} stroke="oklch(0.75 0.16 70)" strokeDasharray="3 3" />
@@ -531,7 +531,7 @@ function Heatmap({ summary }: { summary: Array<{ neighbour: ZoneCode; utilHourly
                 <div key={`${s.neighbour}-${i}`}
                   className="w-[14px] h-[14px] rounded-[2px]"
                   title={u == null ? `${s.neighbour} h${i}: no capacity` : `${s.neighbour} h${i}: ${u.toFixed(0)}%`}
-                  style={{ background: u == null ? "color-mix(in oklab, var(--muted) 0.2, transparent)" : utilColor(u) }}
+                  style={{ background: u == null ? "color-mix(in oklab, var(--muted) 20%, transparent)" : utilColor(u) }}
                 />
               ))}
             </Fragment>
