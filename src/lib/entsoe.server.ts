@@ -8,6 +8,27 @@ import {
 
 const API_BASE = "https://web-api.tp.entsoe.eu/api";
 const DEFAULT_TTL = 1800;
+// Per-source TTLs (seconds).
+const TTL = {
+  da_today: 30 * 60,         // today / future: refresh every 30 min
+  da_past: 7 * 24 * 3600,    // past days: immutable, keep 7 days
+  flow_today: 30 * 60,
+  flow_past: 7 * 24 * 3600,
+  cap_today: 30 * 60,
+  cap_past: 7 * 24 * 3600,
+  outages: 60 * 60,          // 1h
+  loadgen_today: 30 * 60,
+  loadgen_past: 24 * 3600,
+} as const;
+
+// Returns true when dayISO is strictly before today (UTC) — i.e. immutable historical data.
+function isPastDay(dayISO: string): boolean {
+  const today = new Date().toISOString().slice(0, 10);
+  return dayISO < today;
+}
+function ttlFor(today: number, past: number, dayISO: string): number {
+  return isPastDay(dayISO) ? past : today;
+}
 
 function token(): string | null {
   return process.env.ENTSOE_API_TOKEN ?? null;
@@ -150,7 +171,7 @@ export async function fetchDayAheadPrices(zone: ZoneCode, dayISO: string, demo =
       })
       .map(p => ({ ts: p.ts, price: p.value }));
     const payload: PriceSeries = { zone, points: series };
-    await cacheSet(key, payload);
+    await cacheSet(key, payload, ttlFor(TTL.da_today, TTL.da_past, dayISO));
     return { data: payload, source: series.length ? "live" : "empty", fetched_at: new Date().toISOString() };
 
   } catch (e) {
@@ -188,7 +209,7 @@ export async function fetchPhysicalFlows(from: ZoneCode, to: ZoneCode, dayISO: s
       .filter(p => { const t = Date.parse(p.ts); return t >= startMs && t < endMs; })
       .map(p => ({ ts: p.ts, mw: p.value }));
     const payload: FlowSeries = { from, to, points: series };
-    await cacheSet(key, payload);
+    await cacheSet(key, payload, ttlFor(TTL.flow_today, TTL.flow_past, dayISO));
     return { data: payload, source: series.length ? "live" : "empty", fetched_at: new Date().toISOString() };
 
   } catch (e) {
@@ -239,7 +260,7 @@ export async function fetchExplicitAllocation(
       from, to, product, price_eur_mwh: price, offered_mw: null, allocated_mw: null,
       unit_warning: product !== "daily" ? "Monthly/annual A25 prices may be totals depending on TSO" : undefined,
     };
-    await cacheSet(key, row);
+    await cacheSet(key, row, ttlFor(TTL.cap_today, TTL.cap_past, dayISO));
     return { data: row, source: price != null ? "live" : "empty", fetched_at: new Date().toISOString() };
   } catch (e) {
     const reason = e instanceof Error ? e.message : "error";

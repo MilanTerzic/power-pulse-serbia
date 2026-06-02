@@ -17,7 +17,7 @@ export interface EexResult {
   fetched_at: string;
 }
 
-const CACHE_TTL = 6 * 3600;
+const CACHE_TTL = 12 * 3600; // 12h — EEX baseload futures move slowly intraday
 const CACHE_KEY = "eex_rs_futures_v1";
 
 // EEX Serbian power futures (baseload). Page contains a table per product type.
