@@ -154,10 +154,8 @@ function PnLBreakdown() {
         <PositionBreakdownCard
           key={pos.position_id}
           pos={pos}
-          getMode={mode => mode}
           modeFor={(key: string) => getMode(pos.position_id, key)}
           setModeFor={(key, mode) => setMode(pos.position_id, key, mode)}
-          resolve={resolveRow}
         />
       ))}
     </div>
