@@ -8,8 +8,7 @@ import { Panel } from "@/components/panel";
 import { DataBadge } from "@/components/data-badge";
 import { fmtPrice, fmtNum } from "@/lib/format";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useDateRange } from "@/lib/date-range";
 import { ZONES } from "@/lib/markets";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -19,11 +18,13 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 
 function OverviewPage() {
   const fn = useServerFn(getDashboardSnapshot);
-  const [demo, setDemo] = useState(false);
+  const { range } = useDateRange();
   const q = useQuery({
-    queryKey: ["snapshot", demo],
-    queryFn: () => fn({ data: { demo } }),
+    queryKey: ["snapshot", range.from, range.to],
+    queryFn: () => fn({ data: { from: range.from, to: range.to } }),
   });
+
+
 
   const data = q.data;
 
