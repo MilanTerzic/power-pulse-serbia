@@ -22,6 +22,18 @@ function ymdh(d: Date): string {
   return `${y}${M}${D}${h}${m}`;
 }
 
+// Europe/Belgrade UTC offset in hours for a given ISO date (1 in winter, 2 in DST).
+function cetOffsetHours(dayISO: string): number {
+  const noonUtc = new Date(dayISO + "T12:00:00Z");
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Belgrade", timeZoneName: "shortOffset",
+  });
+  const part = fmt.formatToParts(noonUtc).find(p => p.type === "timeZoneName")?.value ?? "GMT+1";
+  const m = /([+-]?\d+)/.exec(part);
+  return m ? parseInt(m[1], 10) : 1;
+
+}
+
 export interface FetchResult<T> {
   data: T;
   source: "live" | "cache" | "demo" | "empty";
