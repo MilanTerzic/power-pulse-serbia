@@ -15,9 +15,10 @@ export const Route = createFileRoute("/_authenticated/map")({
 
 function MapPage() {
   const fn = useServerFn(getDashboardSnapshot);
-  const [demo, setDemo] = useState(false);
+  const { range } = useDateRange();
   const [selected, setSelected] = useState<string | null>(null);
-  const q = useQuery({ queryKey: ["snapshot", demo], queryFn: () => fn({ data: { demo } }) });
+  const q = useQuery({ queryKey: ["snapshot", range.from, range.to], queryFn: () => fn({ data: { from: range.from, to: range.to } }) });
+
   const data = q.data;
 
   const rsAvg = (() => {
