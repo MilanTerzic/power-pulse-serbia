@@ -109,11 +109,6 @@ function OverviewPage() {
           <KPI label="Most expensive neighbour" value={highest ? `${highest.zone} · ${fmtPrice(highest.avg)}` : "—"} accent="destructive" source={highest?.source} />
           <KPI label="Best net import route" value={opportunities[0] ? `${opportunities[0].label}` : "—"} sub={opportunities[0] ? `${fmtPrice(opportunities[0].net)} net` : ""} accent={opportunities[0]?.net > 0 ? "success" : "muted"} source={opportunities[0]?.source} />
         </div>
-        {data?.tomorrowRS && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <KPI label="Cheapest neighbour" value={lowest ? `${lowest.zone} · ${fmtPrice(lowest.avg)}` : "—"} accent="success" source={lowest?.source} />
-          </div>
-        )}
 
         <Panel title="Day-ahead prices — RS vs neighbours">
           <div className="h-72">
