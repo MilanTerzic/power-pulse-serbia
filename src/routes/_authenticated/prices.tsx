@@ -9,7 +9,7 @@ import { DataBadge } from "@/components/data-badge";
 import { fmtPrice, downloadCSV, fmtNum } from "@/lib/format";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useDateRange } from "@/lib/date-range";
 import { Download } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/prices")({
@@ -19,8 +19,9 @@ export const Route = createFileRoute("/_authenticated/prices")({
 
 function PricesPage() {
   const fn = useServerFn(getDashboardSnapshot);
-  const [demo, setDemo] = useState(false);
-  const q = useQuery({ queryKey: ["snapshot", demo], queryFn: () => fn({ data: { demo } }) });
+  const { range } = useDateRange();
+  const q = useQuery({ queryKey: ["snapshot", range.from, range.to], queryFn: () => fn({ data: { from: range.from, to: range.to } }) });
+
   const data = q.data;
 
   const stats = (data?.prices ?? []).map(p => {
