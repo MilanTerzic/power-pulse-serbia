@@ -45,7 +45,7 @@ function MapPage() {
 
   return (
     <>
-      <TopBar title="Route Map" subtitle="Net margin arrows around Serbia" demo={demo} onRefresh={() => q.refetch()} />
+      <TopBar title="Route Map" subtitle="Net margin arrows around Serbia" onRefresh={() => q.refetch()} />
       <div className="p-6 grid lg:grid-cols-[1fr_320px] gap-5">
         <Panel>
           <svg viewBox="0 50 720 460" className="w-full h-[520px]">
