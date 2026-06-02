@@ -9,7 +9,7 @@ import { DataBadge } from "@/components/data-badge";
 import { fmtPrice, downloadCSV, fmtNum } from "@/lib/format";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useDateRange } from "@/lib/date-range";
 import { Download } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/prices")({
@@ -19,8 +19,9 @@ export const Route = createFileRoute("/_authenticated/prices")({
 
 function PricesPage() {
   const fn = useServerFn(getDashboardSnapshot);
-  const [demo, setDemo] = useState(false);
-  const q = useQuery({ queryKey: ["snapshot", demo], queryFn: () => fn({ data: { demo } }) });
+  const { range } = useDateRange();
+  const q = useQuery({ queryKey: ["snapshot", range.from, range.to], queryFn: () => fn({ data: { from: range.from, to: range.to } }) });
+
   const data = q.data;
 
   const stats = (data?.prices ?? []).map(p => {
@@ -49,12 +50,9 @@ function PricesPage() {
 
   return (
     <>
-      <TopBar title="Prices" subtitle="Hourly day-ahead, baseload, peak, volatility" demo={demo} onRefresh={() => q.refetch()} lastRefresh={data?.prices?.[0]?.fetched_at} />
+      <TopBar title="Prices" subtitle="Hourly day-ahead, baseload, peak, volatility" onRefresh={() => q.refetch()} lastRefresh={data?.prices?.[0]?.fetched_at} />
       <div className="p-6 space-y-5">
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant={demo ? "outline" : "default"} onClick={() => setDemo(false)}>Live</Button>
-          <Button size="sm" variant={demo ? "default" : "outline"} onClick={() => setDemo(true)}>Demo</Button>
-        </div>
+
 
         <Panel title="Hourly DA prices" actions={<Button size="sm" variant="ghost" className="gap-1.5" onClick={() => downloadCSV("prices.csv", chartData)}><Download className="w-3.5 h-3.5" />CSV</Button>}>
           <div className="h-80">

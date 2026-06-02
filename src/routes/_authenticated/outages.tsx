@@ -7,7 +7,7 @@ import { Panel } from "@/components/panel";
 import { DataBadge } from "@/components/data-badge";
 import { fmtMW, downloadCSV } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useDateRange } from "@/lib/date-range";
 import { Download } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/outages")({
@@ -17,19 +17,16 @@ export const Route = createFileRoute("/_authenticated/outages")({
 
 function OutagesPage() {
   const fn = useServerFn(getOutages);
-  const [demo, setDemo] = useState(false);
-  const q = useQuery({ queryKey: ["outages", demo], queryFn: () => fn({ data: { demo } }) });
+  const { range } = useDateRange();
+  const q = useQuery({ queryKey: ["outages", range.from, range.to], queryFn: () => fn({ data: { from: range.from, to: range.to } }) });
   const rows = q.data?.rows ?? [];
   const totalMW = rows.reduce((a, r) => a + r.mw, 0);
 
   return (
     <>
-      <TopBar title="Outages (A77/A80)" subtitle={`Currently ${rows.length} units unavailable · ${fmtMW(totalMW)} impacted`} demo={demo} onRefresh={() => q.refetch()} />
+      <TopBar title="Outages (A77/A80)" subtitle={`Currently ${rows.length} units unavailable · ${fmtMW(totalMW)} impacted`} onRefresh={() => q.refetch()} />
       <div className="p-6 space-y-5">
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant={demo ? "outline" : "default"} onClick={() => setDemo(false)}>Live</Button>
-          <Button size="sm" variant={demo ? "default" : "outline"} onClick={() => setDemo(true)}>Demo</Button>
-        </div>
+
         <Panel title="Unavailable generation units" actions={<Button size="sm" variant="ghost" className="gap-1.5" onClick={() => downloadCSV("outages.csv", rows as never)}><Download className="w-3.5 h-3.5" />CSV</Button>}>
           <table className="w-full text-sm">
             <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">

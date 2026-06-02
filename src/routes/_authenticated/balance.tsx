@@ -8,7 +8,7 @@ import { KPI } from "@/components/kpi";
 import { fmtMW } from "@/lib/format";
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useDateRange } from "@/lib/date-range";
 
 export const Route = createFileRoute("/_authenticated/balance")({
   head: () => ({ meta: [{ title: "Balance — SEE Trading Desk" }] }),
@@ -17,8 +17,8 @@ export const Route = createFileRoute("/_authenticated/balance")({
 
 function BalancePage() {
   const fn = useServerFn(getBalance);
-  const [demo, setDemo] = useState(false);
-  const q = useQuery({ queryKey: ["balance", demo], queryFn: () => fn({ data: { demo } }) });
+  const { range } = useDateRange();
+  const q = useQuery({ queryKey: ["balance", range.from, range.to], queryFn: () => fn({ data: { from: range.from, to: range.to } }) });
 
   const data = (q.data?.points ?? []).map((p, i) => ({
     hour: i, load: p.load_mw, gen: p.gen_mw, delta: p.gen_mw - p.load_mw,
@@ -29,13 +29,10 @@ function BalancePage() {
 
   return (
     <>
-      <TopBar title="Balance" subtitle="Serbia load vs generation" demo={demo} onRefresh={() => q.refetch()} />
+      <TopBar title="Balance" subtitle="Serbia load vs generation" onRefresh={() => q.refetch()} />
       <div className="p-6 space-y-5">
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant={demo ? "outline" : "default"} onClick={() => setDemo(false)}>Live</Button>
-          <Button size="sm" variant={demo ? "default" : "outline"} onClick={() => setDemo(true)}>Demo</Button>
-        </div>
         <div className="grid grid-cols-3 gap-3">
+
           <KPI label="Total load (MWh)" value={fmtMW(sumLoad)} source={q.data?.source} />
           <KPI label="Total generation (MWh)" value={fmtMW(sumGen)} source={q.data?.source} />
           <KPI label="Net balance" value={fmtMW(net)} sub={net > 0 ? "long" : "short"} accent={net > 0 ? "success" : "destructive"} />

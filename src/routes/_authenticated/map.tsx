@@ -5,6 +5,8 @@ import { getDashboardSnapshot } from "@/lib/data.functions";
 import { TopBar } from "@/components/top-bar";
 import { Panel } from "@/components/panel";
 import { ZONES, IMPORT_ROUTES, EXPORT_ROUTES } from "@/lib/markets";
+import { useDateRange } from "@/lib/date-range";
+
 import { useState } from "react";
 import { fmtNum } from "@/lib/format";
 
@@ -15,9 +17,10 @@ export const Route = createFileRoute("/_authenticated/map")({
 
 function MapPage() {
   const fn = useServerFn(getDashboardSnapshot);
-  const [demo, setDemo] = useState(false);
+  const { range } = useDateRange();
   const [selected, setSelected] = useState<string | null>(null);
-  const q = useQuery({ queryKey: ["snapshot", demo], queryFn: () => fn({ data: { demo } }) });
+  const q = useQuery({ queryKey: ["snapshot", range.from, range.to], queryFn: () => fn({ data: { from: range.from, to: range.to } }) });
+
   const data = q.data;
 
   const rsAvg = (() => {
@@ -42,7 +45,7 @@ function MapPage() {
 
   return (
     <>
-      <TopBar title="Route Map" subtitle="Net margin arrows around Serbia" demo={demo} onRefresh={() => q.refetch()} />
+      <TopBar title="Route Map" subtitle="Net margin arrows around Serbia" onRefresh={() => q.refetch()} />
       <div className="p-6 grid lg:grid-cols-[1fr_320px] gap-5">
         <Panel>
           <svg viewBox="0 50 720 460" className="w-full h-[520px]">

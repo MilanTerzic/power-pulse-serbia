@@ -6,7 +6,7 @@ import { TopBar } from "@/components/top-bar";
 import { Panel } from "@/components/panel";
 import { DataBadge } from "@/components/data-badge";
 import { fmtPrice, fmtMW, downloadCSV } from "@/lib/format";
-import { useState } from "react";
+import { useDateRange } from "@/lib/date-range";
 import { Button } from "@/components/ui/button";
 import { Download, AlertTriangle } from "lucide-react";
 import { BORDERS } from "@/lib/markets";
@@ -18,8 +18,8 @@ export const Route = createFileRoute("/_authenticated/capacity")({
 
 function CapacityPage() {
   const fn = useServerFn(getCapacity);
-  const [demo, setDemo] = useState(false);
-  const q = useQuery({ queryKey: ["capacity", demo], queryFn: () => fn({ data: { demo } }) });
+  const { range } = useDateRange();
+  const q = useQuery({ queryKey: ["capacity", range.from, range.to], queryFn: () => fn({ data: { from: range.from, to: range.to } }) });
 
   type CapRow = NonNullable<typeof q.data>["rows"][number];
   const grouped: Record<string, { from: string; to: string; daily?: CapRow; monthly?: CapRow; annual?: CapRow }> = {};
@@ -33,12 +33,9 @@ function CapacityPage() {
 
   return (
     <>
-      <TopBar title="Capacity (A25)" subtitle="Explicit allocation prices and volumes per border × product" demo={demo} onRefresh={() => q.refetch()} lastRefresh={q.data?.rows?.[0]?.fetched_at} />
+      <TopBar title="Capacity (A25)" subtitle="Explicit allocation prices and volumes per border × product" onRefresh={() => q.refetch()} lastRefresh={q.data?.rows?.[0]?.fetched_at} />
       <div className="p-6 space-y-5">
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant={demo ? "outline" : "default"} onClick={() => setDemo(false)}>Live</Button>
-          <Button size="sm" variant={demo ? "default" : "outline"} onClick={() => setDemo(true)}>Demo</Button>
-        </div>
+
 
         <div className="flex items-start gap-2 text-xs text-warning bg-warning/10 border border-warning/30 rounded p-3">
           <AlertTriangle className="w-4 h-4 mt-0.5" />
