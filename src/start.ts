@@ -16,7 +16,7 @@ function isMissingServerFunction(error: unknown): boolean {
   );
 }
 
-const errorMiddleware = createMiddleware().server(async ({ next }) => {
+const errorMiddleware = createMiddleware().server(async ({ next, request }) => {
   try {
     return await next();
   } catch (error) {
@@ -24,7 +24,6 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
       throw error;
     }
     console.error(error);
-    const request = new Request(globalThis.location?.href ?? "http://localhost");
     if (isServerFunctionRequest(request)) {
       const staleClient = isMissingServerFunction(error);
       return new Response(
