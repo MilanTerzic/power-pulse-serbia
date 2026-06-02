@@ -81,12 +81,9 @@ function SpreadsPage() {
 
   return (
     <>
-      <TopBar title="Spreads / Arbitrage" subtitle={`Tradable cap: ${maxMW} MW · gross − capacity cost`} demo={demo} onRefresh={() => q.refetch()} lastRefresh={data?.prices?.[0]?.fetched_at} />
+      <TopBar title="Spreads / Arbitrage" subtitle={`Tradable cap: ${maxMW} MW · gross − capacity cost`} onRefresh={() => q.refetch()} lastRefresh={data?.prices?.[0]?.fetched_at} />
       <div className="p-6 space-y-5">
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant={demo ? "outline" : "default"} onClick={() => setDemo(false)}>Live</Button>
-          <Button size="sm" variant={demo ? "default" : "outline"} onClick={() => setDemo(true)}>Demo</Button>
-        </div>
+
         <Tabs defaultValue="import">
           <TabsList>
             <TabsTrigger value="import">Import into RS</TabsTrigger>
