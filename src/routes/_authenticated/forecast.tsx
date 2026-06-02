@@ -21,11 +21,11 @@ function ForecastPage() {
   const fn = useServerFn(runForecast);
   const [horizon, setHorizon] = useState("24");
   const [hist, setHist] = useState("30");
-  const [demo, setDemo] = useState(true);
 
   const m = useMutation({
-    mutationFn: () => fn({ data: { horizon_h: parseInt(horizon), history_days: parseInt(hist), demo } }),
+    mutationFn: () => fn({ data: { horizon_h: parseInt(horizon), history_days: parseInt(hist) } }),
   });
+
 
   const fc = m.data?.forecast ?? [];
   const dailyAvg = fc.length ? fc.reduce((a, p) => a + p.forecast, 0) / fc.length : null;
