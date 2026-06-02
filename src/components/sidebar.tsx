@@ -3,8 +3,8 @@ import {
   LayoutDashboard, LineChart, ArrowLeftRight, Map, Plug, MoveRight,
   Activity, AlertTriangle, CloudSun, Waves, TrendingUp, Briefcase, Settings, LogOut,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "@tanstack/react-router";
+import { AUTH_KEY } from "@/routes/login";
 
 const NAV = [
   { to: "/dashboard", label: "Overview",    icon: LayoutDashboard },
@@ -25,8 +25,8 @@ const NAV = [
 export function Sidebar() {
   const loc = useLocation();
   const nav = useNavigate();
-  const signOut = async () => {
-    await supabase.auth.signOut();
+  const signOut = () => {
+    try { localStorage.removeItem(AUTH_KEY); } catch {}
     nav({ to: "/login" });
   };
   return (

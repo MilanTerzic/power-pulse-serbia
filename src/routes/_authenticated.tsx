@@ -1,11 +1,13 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { supabase } from "@/integrations/supabase/client";
 import { Sidebar } from "@/components/sidebar";
+import { AUTH_KEY } from "@/routes/login";
 
 export const Route = createFileRoute("/_authenticated")({
-  beforeLoad: async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/login" });
+  beforeLoad: () => {
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem(AUTH_KEY) !== "1") {
+      throw redirect({ to: "/login" });
+    }
   },
   component: Layout,
 });
