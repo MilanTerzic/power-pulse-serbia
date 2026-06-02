@@ -260,7 +260,7 @@ export async function fetchExplicitAllocation(
       from, to, product, price_eur_mwh: price, offered_mw: null, allocated_mw: null,
       unit_warning: product !== "daily" ? "Monthly/annual A25 prices may be totals depending on TSO" : undefined,
     };
-    await cacheSet(key, row);
+    await cacheSet(key, row, ttlFor(TTL.cap_today, TTL.cap_past, dayISO));
     return { data: row, source: price != null ? "live" : "empty", fetched_at: new Date().toISOString() };
   } catch (e) {
     const reason = e instanceof Error ? e.message : "error";
