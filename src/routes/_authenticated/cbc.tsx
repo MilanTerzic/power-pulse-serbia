@@ -162,30 +162,35 @@ function PnLBreakdown() {
   );
 }
 
+interface PosForCard {
+  position_id: string; label: string; from: string; to: string;
+  booked_mw: number; annual_booked_price: number;
+  annual_current_price: number | null; source_annual: string;
+  year: number; start_date: string; end_date: string;
+  rows: Array<{
+    year: number; month: number; monthLabel: string;
+    date_from: string; date_to: string; hours: number;
+    monthly_price: number | null; daily_price: number | null;
+    source_monthly: string; source_daily: string;
+  }>;
+}
+
 function PositionBreakdownCard({
-  pos, modeFor, setModeFor, resolve,
+  pos, modeFor, setModeFor,
 }: {
-  pos: {
-    position_id: string; label: string; from: string; to: string;
-    booked_mw: number; annual_booked_price: number;
-    annual_current_price: number | null; source_annual: string;
-    year: number; start_date: string; end_date: string;
-    rows: Array<{
-      year: number; month: number; monthLabel: string;
-      date_from: string; date_to: string; hours: number;
-      monthly_price: number | null; daily_price: number | null;
-      source_monthly: string; source_daily: string;
-    }>;
-  };
-  getMode: (m: SellAs) => SellAs;
+  pos: PosForCard;
   modeFor: (key: string) => SellAs;
   setModeFor: (key: string, mode: SellAs) => void;
-  resolve: (pos: unknown, row: unknown, mode: SellAs) => { mode: SellAs; price: number | null; spread: number | null; pnl: number | null };
 }) {
   const rowsResolved = pos.rows.map(r => {
     const mode = modeFor(`${r.year}-${r.month}`);
-    const x = resolve(pos, r, mode);
-    return { ...r, ...x };
+    let price: number | null = null;
+    if (mode === "monthly") price = r.monthly_price;
+    else if (mode === "daily") price = r.daily_price;
+    else if (mode === "annual") price = pos.annual_current_price;
+    const spread = price == null ? null : price - pos.annual_booked_price;
+    const pnl = spread == null ? null : spread * pos.booked_mw * r.hours;
+    return { ...r, mode, price, spread, pnl };
   });
   const subTotal = rowsResolved.reduce((s, r) => s + (r.pnl ?? 0), 0);
   const missing = rowsResolved.filter(r => r.pnl == null).length;
