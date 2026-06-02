@@ -84,16 +84,18 @@ export async function fetchWeather(zone: ZoneCode, dayISO: string): Promise<{ da
 
 export interface DischargePoint { date: string; discharge_m3s: number; }
 
-export async function fetchRiverDischarge(lat: number, lon: number, from: string, to: string): Promise<{ data: DischargePoint[]; source: "open-meteo" | "visual-crossing" | "none"; reason?: string }> {
+export async function fetchRiverDischarge(lat: number, lon: number, from: string, to: string): Promise<{ data: DischargePoint[]; source: "open-meteo" | "visual-crossing" | "cache" | "none"; reason?: string }> {
+  const cacheKey = `discharge:${lat.toFixed(3)},${lon.toFixed(3)}:${from}:${to}`;
+  const cached = await cacheGet<{ data: DischargePoint[]; source: "open-meteo" | "visual-crossing" }>(cacheKey);
+  if (cached) return { data: cached.data, source: "cache", reason: `was_${cached.source}` };
   try {
     const url = `https://flood-api.open-meteo.com/v1/flood?latitude=${lat}&longitude=${lon}&daily=river_discharge&start_date=${from}&end_date=${to}`;
     const j = await fetchJson(url) as { daily?: { time: string[]; river_discharge: (number | null)[] } };
     const d = j.daily;
     if (!d?.time?.length) throw new Error("empty");
-    return {
-      data: d.time.map((t, i) => ({ date: t, discharge_m3s: (d.river_discharge[i] ?? 0) as number })),
-      source: "open-meteo",
-    };
+    const data: DischargePoint[] = d.time.map((t, i) => ({ date: t, discharge_m3s: (d.river_discharge[i] ?? 0) as number }));
+    await cacheSet(cacheKey, { data, source: "open-meteo" }, DISCHARGE_TTL);
+    return { data, source: "open-meteo" };
   } catch (primary) {
     // Visual Crossing doesn't publish river discharge; fall back to precipitation as a proxy.
     try {
@@ -102,11 +104,9 @@ export async function fetchRiverDischarge(lat: number, lon: number, from: string
       const url = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${lat},${lon}/${from}/${to}?unitGroup=metric&include=days&elements=datetime,precip&key=${encodeURIComponent(key)}&contentType=json`;
       const j = await fetchJson(url) as { days?: Array<{ datetime: string; precip: number | null }> };
       const days = j.days ?? [];
-      return {
-        data: days.map(d => ({ date: d.datetime, discharge_m3s: (d.precip ?? 0) as number })),
-        source: "visual-crossing",
-        reason: "discharge_unavailable_using_precip_proxy",
-      };
+      const data: DischargePoint[] = days.map(d => ({ date: d.datetime, discharge_m3s: (d.precip ?? 0) as number }));
+      if (data.length) await cacheSet(cacheKey, { data, source: "visual-crossing" }, DISCHARGE_TTL);
+      return { data, source: "visual-crossing", reason: "discharge_unavailable_using_precip_proxy" };
     } catch (fb) {
       return { data: [], source: "none", reason: `${primary instanceof Error ? primary.message : "err"} / ${fb instanceof Error ? fb.message : "err"}` };
     }
