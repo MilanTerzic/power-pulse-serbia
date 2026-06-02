@@ -7,7 +7,7 @@ import { Panel } from "@/components/panel";
 import { DataBadge } from "@/components/data-badge";
 import { fmtNum, fmtPrice, fmtEur, downloadCSV } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useDateRange } from "@/lib/date-range";
 import { Download } from "lucide-react";
 import { ZONES } from "@/lib/markets";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -20,8 +20,9 @@ export const Route = createFileRoute("/_authenticated/spreads")({
 function SpreadsPage() {
   const fn = useServerFn(getDashboardSnapshot);
   const sFn = useServerFn(getSettings);
-  const [demo, setDemo] = useState(false);
-  const q = useQuery({ queryKey: ["snapshot", demo], queryFn: () => fn({ data: { demo } }) });
+  const { range } = useDateRange();
+  const q = useQuery({ queryKey: ["snapshot", range.from, range.to], queryFn: () => fn({ data: { from: range.from, to: range.to } }) });
+
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => sFn() });
   const maxMW = Number(settings.data?.max_mw ?? 100);
   const data = q.data;
