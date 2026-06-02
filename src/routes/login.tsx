@@ -5,9 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-
-const APP_PASSWORD = "metsrb123";
-export const AUTH_KEY = "see_td_auth";
+import { APP_PASSWORD, AUTH_KEY } from "@/lib/auth";
 
 export const Route = createFileRoute("/login")({
   head: () => ({ meta: [{ title: "Sign in — SEE Trading Desk" }] }),

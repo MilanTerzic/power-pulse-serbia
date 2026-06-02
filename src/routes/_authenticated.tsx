@@ -1,11 +1,10 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { Sidebar } from "@/components/sidebar";
-import { AUTH_KEY } from "@/routes/login";
+import { hasSimpleAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: () => {
-    if (typeof window === "undefined") return;
-    if (localStorage.getItem(AUTH_KEY) !== "1") {
+    if (!hasSimpleAuth()) {
       throw redirect({ to: "/login" });
     }
   },

@@ -4,7 +4,7 @@ import {
   Activity, AlertTriangle, CloudSun, Waves, TrendingUp, Briefcase, Settings, LogOut,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
-import { AUTH_KEY } from "@/routes/login";
+import { AUTH_KEY } from "@/lib/auth";
 
 const NAV = [
   { to: "/dashboard", label: "Overview",    icon: LayoutDashboard },
