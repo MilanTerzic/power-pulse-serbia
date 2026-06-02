@@ -5,7 +5,9 @@ import {
   fetchDayAheadPrices, fetchPhysicalFlows, fetchExplicitAllocation,
   fetchOutages, fetchLoadGen,
 } from "./entsoe.server";
-import { fetchWeather } from "./openmeteo.server";
+import { fetchWeather, fetchRiverDischarge } from "./openmeteo.server";
+import { DANUBE_STATION_COORDS } from "./markets";
+
 import { forecastPrices } from "./forecast";
 import {
   IMPORT_ROUTES, EXPORT_ROUTES, BORDERS, PRODUCTS, ZONES, type ZoneCode, type ProductType,
@@ -330,3 +332,19 @@ export const updateSettings = createServerFn({ method: "POST" })
   });
 
 export { offsetISO, todayISO };
+
+// Danube river discharge — Open-Meteo flood API, Visual Crossing precipitation as fallback proxy.
+export const getDanubeDischarge = createServerFn({ method: "GET" })
+  .inputValidator((data: RangeInput) => data ?? {})
+  .handler(async ({ data }) => {
+    const days = expandRange(data?.from, data?.to, data?.day);
+    const from = days[0];
+    const to = days[days.length - 1];
+    const stations = Object.entries(DANUBE_STATION_COORDS);
+    const res = await Promise.all(stations.map(async ([name, c]) => {
+      const r = await fetchRiverDischarge(c.lat, c.lon, from, to);
+      return { name, ...r };
+    }));
+    return { from, to, stations: res };
+  });
+
