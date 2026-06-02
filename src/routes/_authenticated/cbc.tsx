@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, Pencil, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -157,6 +157,11 @@ function Predictor() {
   );
 }
 
+const DEFAULT_POSITIONS = [
+  { position_name: "HR → BA annual 2026", border_from: "HR", border_to: "BA", product_type: "annual", booked_mw: 15, annual_booked_price: 0.35, start_date: "2026-01-01", end_date: "2026-12-31", fees: 0, preferred_resale_mode: "auto", notes: "Seeded default" },
+  { position_name: "BA → ME annual 2026", border_from: "BA", border_to: "ME", product_type: "annual", booked_mw: 5,  annual_booked_price: 3.44, start_date: "2026-01-01", end_date: "2026-12-31", fees: 0, preferred_resale_mode: "auto", notes: "Seeded default" },
+];
+
 function Manual() {
   const listFn = useServerFn(listPositions);
   const upFn = useServerFn(upsertPosition);
@@ -164,6 +169,24 @@ function Manual() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["positions"], queryFn: () => listFn() });
   const del = useMutation({ mutationFn: (id: string) => delFn({ data: { id } }), onSuccess: () => { toast.success("Position deleted"); qc.invalidateQueries({ queryKey: ["positions"] }); qc.invalidateQueries({ queryKey: ["cbc_pnl"] }); } });
+
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current) return;
+    if (q.isSuccess && (q.data?.length ?? 0) === 0) {
+      seeded.current = true;
+      (async () => {
+        try {
+          for (const p of DEFAULT_POSITIONS) await upFn({ data: p });
+          qc.invalidateQueries({ queryKey: ["positions"] });
+          qc.invalidateQueries({ queryKey: ["cbc_pnl"] });
+        } catch (e) {
+          console.warn("seed positions failed", e);
+        }
+      })();
+    }
+  }, [q.isSuccess, q.data, upFn, qc]);
+
 
   return (
     <Panel title="Portfolio positions" actions={<PositionDialog onSaved={() => { qc.invalidateQueries({ queryKey: ["positions"] }); qc.invalidateQueries({ queryKey: ["cbc_pnl"] }); }} />}>
