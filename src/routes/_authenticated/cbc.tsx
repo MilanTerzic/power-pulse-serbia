@@ -530,36 +530,98 @@ function RecBadge({ rec }: { rec: string }) {
 }
 
 function Predictor() {
-  const fn = useServerFn(getCBCComparison);
-  const q = useQuery({ queryKey: ["cbc_cmp"], queryFn: () => fn({ data: {} }) });
-  const rows = q.data?.rows ?? [];
+  const fn = useServerFn(getMonthlyResaleBreakdown);
+  const { range } = useDateRange();
+  const q = useQuery({
+    queryKey: ["cbc_breakdown", range.from, range.to],
+    queryFn: () => fn({ data: { from: range.from, to: range.to } }),
+  });
+  const positions = q.data?.positions ?? [];
+  const todayKey = (() => { const d = new Date(); return d.getFullYear() * 100 + (d.getMonth() + 1); })();
+  const monthLabels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
   return (
-    <Panel title="Predictor — daily vs monthly bias">
-      <p className="text-xs text-muted-foreground mb-3">
-        Heuristic: compares current monthly and daily prices vs the annual reference. The product
-        with the larger positive spread vs annual is the better resell candidate today.
-      </p>
-      <table className="w-full text-sm">
-        <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          <tr><th className="text-left py-1.5">Border</th><th className="text-right">Δ Monthly−Annual</th><th className="text-right">Δ Daily−Annual</th><th>Lean</th></tr>
-        </thead>
-        <tbody>
-          {rows.map(r => {
-            const dm = (r.monthly ?? 0) - (r.annual ?? 0);
-            const dd = (r.daily ?? 0) - (r.annual ?? 0);
-            const lean = dd > dm && dd > 0 ? "daily" : dm > 0 ? "monthly" : "keep";
-            return (
-              <tr key={`${r.from}_${r.to}`} className="border-t border-border/60">
-                <td className="py-1.5">{r.from} → {r.to}</td>
-                <td className={`text-right num ${dm > 0 ? "text-success" : "text-muted-foreground"}`}>{fmtPrice(dm)}</td>
-                <td className={`text-right num ${dd > 0 ? "text-success" : "text-muted-foreground"}`}>{fmtPrice(dd)}</td>
-                <td><RecBadge rec={lean === "daily" ? "resell_daily" : lean === "monthly" ? "resell_monthly" : "keep"} /></td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </Panel>
+    <div className="space-y-4">
+      <Panel title="Resale Strategy Predictor (ARIMA)">
+        <p className="text-xs text-muted-foreground">
+          AR(1)+drift forecast trained on historical monthly &amp; daily resale prices per border.
+          Recommends the strategy with the higher expected PnL = (forecast − annual booked) × MW × hours.
+          Confidence reflects historical point count (≥12 high, ≥6 medium, &lt;6 low).
+        </p>
+      </Panel>
+      {positions.map(pos => {
+        const histM: number[] = []; const histD: number[] = [];
+        for (const r of pos.rows) {
+          const k = r.year * 100 + r.month;
+          if (k < todayKey) {
+            if (r.monthly_price != null) histM.push(r.monthly_price);
+            if (r.daily_price != null) histD.push(r.daily_price);
+          }
+        }
+        let step = 1;
+        const future = pos.rows.filter(r => (r.year * 100 + r.month) >= todayKey).map(r => {
+          const fm = arimaLikeForecast(histM, step);
+          const fd = arimaLikeForecast(histD, step);
+          step++;
+          const pnl_m = fm.forecast == null ? null : (fm.forecast - pos.annual_booked_price) * pos.booked_mw * r.hours;
+          const pnl_d = fd.forecast == null ? null : (fd.forecast - pos.annual_booked_price) * pos.booked_mw * r.hours;
+          let rec: "monthly" | "daily" | "none" = "none";
+          if (pnl_m != null && pnl_d != null) rec = pnl_m >= pnl_d ? "monthly" : "daily";
+          else if (pnl_m != null) rec = "monthly";
+          else if (pnl_d != null) rec = "daily";
+          const conf = (fm.confidence === "high" || fd.confidence === "high") ? "high" :
+            (fm.confidence === "medium" || fd.confidence === "medium") ? "medium" :
+            (fm.confidence === "none" && fd.confidence === "none") ? "none" : "low";
+          return { r, fm, fd, pnl_m, pnl_d, rec, conf };
+        });
+        return (
+          <Panel key={pos.position_id} title={`${pos.label} · forecast`}>
+            <table className="w-full text-sm">
+              <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="text-left py-1.5">Month</th>
+                  <th className="text-right">Fcst Monthly</th>
+                  <th className="text-right">Fcst Daily</th>
+                  <th className="text-right">Annual booked</th>
+                  <th className="text-right">Exp PnL Monthly</th>
+                  <th className="text-right">Exp PnL Daily</th>
+                  <th>Recommendation</th>
+                  <th>Confidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {future.map(({ r, fm, fd, pnl_m, pnl_d, rec, conf }) => {
+                  const recCls = rec === "none" ? "bg-muted/40 text-muted-foreground border-muted"
+                    : "bg-success/15 text-success border-success/30";
+                  const confCls = conf === "high" ? "border-success/40 text-success"
+                    : conf === "medium" ? "border-info/40 text-info"
+                    : conf === "none" ? "border-muted text-muted-foreground"
+                    : "border-warning/40 text-warning";
+                  return (
+                    <tr key={`${r.year}-${r.month}`} className="border-t border-border/60">
+                      <td className="py-1.5">{monthLabels[r.month-1]} {r.year}</td>
+                      <td className="text-right num">{fm.forecast == null ? "—" : fmtNum(fm.forecast, 4)}</td>
+                      <td className="text-right num">{fd.forecast == null ? "—" : fmtNum(fd.forecast, 4)}</td>
+                      <td className="text-right num">{fmtPrice(pos.annual_booked_price)}</td>
+                      <td className={`text-right num ${(pnl_m ?? 0) >= 0 ? "text-success" : "text-destructive"}`}>{pnl_m == null ? "—" : fmtEur(pnl_m, 0)}</td>
+                      <td className={`text-right num ${(pnl_d ?? 0) >= 0 ? "text-success" : "text-destructive"}`}>{pnl_d == null ? "—" : fmtEur(pnl_d, 0)}</td>
+                      <td><Badge variant="outline" className={`${recCls} font-mono text-[10px]`}>{rec === "none" ? "INSUFFICIENT DATA" : rec.toUpperCase()}</Badge></td>
+                      <td><Badge variant="outline" className={`${confCls} font-mono text-[10px]`}>{conf}</Badge></td>
+                    </tr>
+                  );
+                })}
+                {future.length === 0 && (
+                  <tr><td colSpan={8} className="text-sm text-muted-foreground py-3">No future months in the selected date range.</td></tr>
+                )}
+              </tbody>
+            </table>
+            {histM.length < 6 && histD.length < 6 && (
+              <p className="text-[11px] text-warning mt-2">Fallback forecast used due to limited historical data ({histM.length}M / {histD.length}D points).</p>
+            )}
+          </Panel>
+        );
+      })}
+    </div>
   );
 }
 
