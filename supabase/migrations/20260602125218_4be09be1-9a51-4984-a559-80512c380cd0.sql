@@ -1,0 +1,1 @@
+DELETE FROM api_cache WHERE key LIKE 'da_prices:%' OR key LIKE 'flow:%';
