@@ -323,6 +323,128 @@ export const getResalePnL = createServerFn({ method: "GET" })
     return { day, rows: out };
   });
 
+// ---- per-month resale PnL breakdown ----------------------------------------
+export interface MonthlyResaleRow {
+  year: number;
+  month: number;          // 1..12
+  monthLabel: string;     // "Jan", "Feb", ...
+  date_from: string;      // YYYY-MM-DD (clipped to range / position window)
+  date_to: string;        // YYYY-MM-DD
+  hours: number;          // actual hours covered (24 * days)
+  monthly_price: number | null;
+  daily_price: number | null;
+  source_monthly: string;
+  source_daily: string;
+}
+export interface PositionBreakdown {
+  position_id: string;
+  label: string;
+  from: ZoneCode;
+  to: ZoneCode;
+  booked_mw: number;
+  annual_booked_price: number;
+  annual_current_price: number | null;   // current annual market price (for "Sell as Annual")
+  source_annual: string;
+  year: number;
+  start_date: string;
+  end_date: string;
+  rows: MonthlyResaleRow[];
+}
+
+function monthsBetween(startISO: string, endISO: string) {
+  const start = new Date(startISO + "T00:00:00Z");
+  const end = new Date(endISO + "T00:00:00Z");
+  const out: Array<{ year: number; month: number; label: string; from: string; to: string; hours: number }> = [];
+  let y = start.getUTCFullYear();
+  let m = start.getUTCMonth() + 1;
+  const endY = end.getUTCFullYear();
+  const endM = end.getUTCMonth() + 1;
+  while (y < endY || (y === endY && m <= endM)) {
+    const firstD = new Date(Date.UTC(y, m - 1, 1));
+    const lastD = new Date(Date.UTC(y, m, 1) - 86400_000);
+    const effStart = firstD < start ? start : firstD;
+    const effEnd = lastD > end ? end : lastD;
+    const days = Math.round((effEnd.getTime() - effStart.getTime()) / 86400_000) + 1;
+    out.push({
+      year: y,
+      month: m,
+      label: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m - 1],
+      from: effStart.toISOString().slice(0, 10),
+      to: effEnd.toISOString().slice(0, 10),
+      hours: days * 24,
+    });
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return out;
+}
+
+export const getMonthlyResaleBreakdown = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: RangeInput) => data ?? {})
+  .handler(async ({ context, data }) => {
+    const { supabase, userId } = context;
+    const { data: positions } = await supabase
+      .from("manual_capacity_positions")
+      .select("*")
+      .eq("user_id", userId);
+
+    const rangeFrom = clean(data?.from);
+    const rangeTo = clean(data?.to);
+
+    const out: PositionBreakdown[] = [];
+    for (const pos of positions ?? []) {
+      const from = pos.border_from as ZoneCode;
+      const to = pos.border_to as ZoneCode;
+      const posStart = pos.start_date as string;
+      const posEnd = pos.end_date as string;
+      const effStart = rangeFrom && rangeFrom > posStart ? rangeFrom : posStart;
+      const effEnd = rangeTo && rangeTo < posEnd ? rangeTo : posEnd;
+      if (effStart > effEnd) continue;
+
+      const months = monthsBetween(effStart, effEnd);
+
+      const annualCur = await fetchExplicitAllocation(from, to, "annual", posStart);
+
+      const rows = await Promise.all(months.map(async mo => {
+        const monthFirst = `${mo.year}-${String(mo.month).padStart(2, "0")}-01`;
+        const midDay = `${mo.year}-${String(mo.month).padStart(2, "0")}-15`;
+        const [monthly, daily] = await Promise.all([
+          fetchExplicitAllocation(from, to, "monthly", monthFirst),
+          fetchExplicitAllocation(from, to, "daily", midDay),
+        ]);
+        return {
+          year: mo.year,
+          month: mo.month,
+          monthLabel: mo.label,
+          date_from: mo.from,
+          date_to: mo.to,
+          hours: mo.hours,
+          monthly_price: monthly.data.price_eur_mwh,
+          daily_price: daily.data.price_eur_mwh,
+          source_monthly: monthly.source,
+          source_daily: daily.source,
+        };
+      }));
+
+      out.push({
+        position_id: pos.id,
+        label: pos.position_name,
+        from, to,
+        booked_mw: Number(pos.booked_mw),
+        annual_booked_price: Number(pos.annual_booked_price ?? 0),
+        annual_current_price: annualCur.data.price_eur_mwh,
+        source_annual: annualCur.source,
+        year: new Date(posStart).getUTCFullYear(),
+        start_date: effStart,
+        end_date: effEnd,
+        rows,
+      });
+    }
+    return { from: rangeFrom, to: rangeTo, positions: out };
+  });
+
+
 // ---- positions CRUD ----------------------------------------------------------
 export const listPositions = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
