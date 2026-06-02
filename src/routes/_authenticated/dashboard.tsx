@@ -55,12 +55,24 @@ function OverviewPage() {
     return { label: r.label, from: r.from, to: r.to, gross, cap, net: gross - cap, source: r.cap.source };
   }).sort((a, b) => b.net - a.net);
 
-  // Build combined chart data
-  const chartData = rsPoints.map((p, i) => {
-    const row: Record<string, number | string> = { ts: new Date(p.ts).toLocaleTimeString("en-GB", { hour: "2-digit" }) };
-    for (const z of data?.prices ?? []) row[z.zone] = z.data.points[i]?.price ?? NaN;
-    return row;
-  });
+  // Build combined chart data — one row per hourly timestamp, all zones aligned
+  const multiDay = range.from !== range.to;
+  const tsIndex = new Map<string, Record<string, number | string>>();
+  for (const z of data?.prices ?? []) {
+    for (const pt of z.data.points) {
+      const row = tsIndex.get(pt.ts) ?? {
+        ts: pt.ts,
+        t: new Date(pt.ts).toLocaleString("en-GB", {
+          hour: "2-digit",
+          ...(multiDay ? { day: "2-digit", month: "short" } : {}),
+          timeZone: "Europe/Belgrade",
+        }),
+      };
+      row[z.zone] = pt.price;
+      tsIndex.set(pt.ts, row);
+    }
+  }
+  const chartData = [...tsIndex.values()].sort((a, b) => (a.ts as string) < (b.ts as string) ? -1 : 1);
 
   const ZONE_LINES: Array<{ key: string; color: string }> = [
     { key: "RS", color: "#1ec8c8" },
@@ -110,16 +122,23 @@ function OverviewPage() {
           <KPI label="Best net import route" value={opportunities[0] ? `${opportunities[0].label}` : "—"} sub={opportunities[0] ? `${fmtPrice(opportunities[0].net)} net` : ""} accent={opportunities[0]?.net > 0 ? "success" : "muted"} source={opportunities[0]?.source} />
         </div>
 
-        <Panel title="Day-ahead prices — RS vs neighbours">
+        <Panel
+          title={`Hourly day-ahead spot price by country — ${range.from === range.to ? range.from : `${range.from} → ${range.to}`}`}
+          actions={<span className="text-[10px] text-muted-foreground">€/MWh · time in CET (Europe/Belgrade)</span>}
+        >
+          <p className="text-xs text-muted-foreground mb-2">
+            Each line is one country's day-ahead auction clearing price for every hour of the selected period.
+            Serbia (RS, thick teal) is the reference: neighbours above RS suggest export opportunities, below RS suggest import opportunities.
+          </p>
           <div className="h-72">
             <ResponsiveContainer>
-              <LineChart data={chartData}>
+              <LineChart data={chartData} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
                 <CartesianGrid stroke="var(--color-grid)" strokeDasharray="3 3" />
-                <XAxis dataKey="ts" stroke="var(--color-muted-foreground)" fontSize={11} />
-                <YAxis stroke="var(--color-muted-foreground)" fontSize={11} unit=" €" />
-                <Tooltip contentStyle={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }} />
+                <XAxis dataKey="t" stroke="var(--color-muted-foreground)" fontSize={11} minTickGap={28} />
+                <YAxis stroke="var(--color-muted-foreground)" fontSize={11} unit=" €" label={{ value: "€/MWh", angle: -90, position: "insideLeft", fill: "var(--color-muted-foreground)", fontSize: 10 }} />
+                <Tooltip contentStyle={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }} formatter={(v: number) => [`${typeof v === "number" ? v.toFixed(2) : v} €/MWh`, ""]} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                {ZONE_LINES.map(z => <Line key={z.key} dataKey={z.key} stroke={z.color} dot={false} strokeWidth={z.key === "RS" ? 2 : 1.2} />)}
+                {ZONE_LINES.map(z => <Line key={z.key} dataKey={z.key} stroke={z.color} dot={false} strokeWidth={z.key === "RS" ? 2.4 : 1.2} connectNulls />)}
               </LineChart>
             </ResponsiveContainer>
           </div>
