@@ -584,6 +584,7 @@ export const runForecastV2 = createServerFn({ method: "POST" })
         error: "SEEPEX history unavailable for the selected range.",
         warnings, history: [], forecast: [], drivers: [], diagnostics: null,
         latest_actual: null, eex: { source: "unavailable", reason: "skipped", prices: [], fetched_at: new Date().toISOString() },
+        eex_anchor: null, weights: { stat: 1, eex: 0, fund: 0 }, fundamental_adj: 0,
       };
     }
     const latest = history[history.length - 1];
