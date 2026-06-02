@@ -134,7 +134,7 @@ export const getOutages = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
     const day = days[0];
-    const zones: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "BA", "ME", "MK", "AL"];
+    const zones: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "ME", "MK", "AL"];
     const res = await Promise.all(zones.map(z => fetchOutages(z, day)));
     return { day, rows: zones.flatMap((z, i) => res[i].data.map(o => ({ ...o, source: res[i].source, reason: res[i].reason }))) };
   });
@@ -144,10 +144,11 @@ export const getWeather = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
     const day = days[0];
-    const zones: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "BA", "ME", "MK", "AL"];
+    const zones: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "ME", "MK", "AL"];
     const res = await Promise.all(zones.map(z => fetchWeather(z, day)));
     return { day, rows: zones.map((z, i) => ({ zone: z, name: ZONES[z].name, ...res[i] })) };
   });
+
 
 export const getBalance = createServerFn({ method: "GET" })
   .inputValidator((data: RangeInput) => data ?? {})
