@@ -93,7 +93,19 @@ function OverviewPage() {
             sub={rsPoints.length ? `Avg of ${rsPoints.length} hourly DA prices (€/MWh)` : "No data"}
             source={data?.prices?.find(p => p.zone === "RS")?.source}
           />
-          <KPI label="Cheapest neighbour" value={lowest ? `${lowest.zone} · ${fmtPrice(lowest.avg)}` : "—"} accent="success" source={lowest?.source} />
+          {data?.tomorrowRS ? (
+            <KPI
+              label={`SEEPEX baseload · ${data.tomorrowRS.day} (tomorrow)`}
+              value={data.tomorrowRS.avg != null ? fmtPrice(data.tomorrowRS.avg) : "Not published yet"}
+              sub={data.tomorrowRS.avg != null
+                ? `Avg of ${data.tomorrowRS.points.length}h · gate-closed`
+                : "DA auction publishes ~12:45 CET"}
+              source={data.tomorrowRS.avg != null ? data.tomorrowRS.source : undefined}
+              accent={data.tomorrowRS.avg != null ? "info" : "muted"}
+            />
+          ) : (
+            <KPI label="Cheapest neighbour" value={lowest ? `${lowest.zone} · ${fmtPrice(lowest.avg)}` : "—"} accent="success" source={lowest?.source} />
+          )}
           <KPI label="Most expensive neighbour" value={highest ? `${highest.zone} · ${fmtPrice(highest.avg)}` : "—"} accent="destructive" source={highest?.source} />
           <KPI label="Best net import route" value={opportunities[0] ? `${opportunities[0].label}` : "—"} sub={opportunities[0] ? `${fmtPrice(opportunities[0].net)} net` : ""} accent={opportunities[0]?.net > 0 ? "success" : "muted"} source={opportunities[0]?.source} />
         </div>
