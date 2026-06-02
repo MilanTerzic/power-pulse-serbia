@@ -30,7 +30,7 @@ async function cacheGet(): Promise<EexResult | null> {
   if (!data) return null;
   const age = (Date.now() - new Date(data.fetched_at as string).getTime()) / 1000;
   if (age > (data.ttl_seconds ?? CACHE_TTL)) return null;
-  return data.payload as EexResult;
+  return data.payload as unknown as EexResult;
 }
 
 async function cacheSet(r: EexResult) {
