@@ -1,27 +1,81 @@
-// Open-Meteo client (no API key)
+// Weather + river-discharge: Open-Meteo primary, Visual Crossing fallback.
 import { ZONES, type ZoneCode } from "./markets";
 
 export interface WeatherPoint { ts: string; temp_c: number; wind_ms: number; }
 
-export async function fetchWeather(zone: ZoneCode, dayISO: string): Promise<{ data: WeatherPoint[]; source: "live" | "demo"; reason?: string }> {
+async function fetchJson(url: string, timeoutMs = 10_000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { headers: { accept: "application/json" }, signal: ctrl.signal });
+    if (!r.ok) throw new Error(`http_${r.status}`);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+
+async function fetchWeatherVisualCrossing(lat: number, lon: number, dayISO: string): Promise<WeatherPoint[]> {
+  const key = process.env.VISUAL_CROSSING_API_KEY;
+  if (!key) throw new Error("VISUAL_CROSSING_API_KEY not configured");
+  const url = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${lat},${lon}/${dayISO}/${dayISO}?unitGroup=metric&include=hours&elements=datetime,temp,windspeed&key=${encodeURIComponent(key)}&contentType=json`;
+  const j = await fetchJson(url) as { days?: Array<{ datetime: string; hours?: Array<{ datetime: string; temp: number; windspeed: number }> }> };
+  const hours = j.days?.[0]?.hours ?? [];
+  return hours.map(h => ({
+    ts: new Date(`${dayISO}T${h.datetime}Z`).toISOString(),
+    temp_c: h.temp,
+    wind_ms: (h.windspeed ?? 0) / 3.6,
+  }));
+}
+
+export async function fetchWeather(zone: ZoneCode, dayISO: string): Promise<{ data: WeatherPoint[]; source: "live" | "visual-crossing" | "demo"; reason?: string }> {
   const cap = ZONES[zone].capital;
-  if (!cap) {
-    return { data: [], source: "demo", reason: "no_capital" };
-  }
+  if (!cap) return { data: [], source: "demo", reason: "no_capital" };
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${cap.lat}&longitude=${cap.lon}&hourly=temperature_2m,wind_speed_10m&start_date=${dayISO}&end_date=${dayISO}&timezone=UTC`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`open_meteo_${res.status}`);
-    const j = await res.json() as { hourly?: { time: string[]; temperature_2m: number[]; wind_speed_10m: number[] } };
+    const j = await fetchJson(url) as { hourly?: { time: string[]; temperature_2m: number[]; wind_speed_10m: number[] } };
     const h = j.hourly;
-    if (!h) return { data: [], source: "demo", reason: "empty" };
-    const data = h.time.map((t, i) => ({
-      ts: new Date(t + "Z").toISOString(),
-      temp_c: h.temperature_2m[i],
-      wind_ms: h.wind_speed_10m[i] / 3.6, // km/h → m/s
-    }));
-    return { data, source: "live" };
-  } catch (e) {
-    return { data: [], source: "demo", reason: e instanceof Error ? e.message : "error" };
+    if (!h || !h.time?.length) throw new Error("empty");
+    return {
+      data: h.time.map((t, i) => ({ ts: new Date(t + "Z").toISOString(), temp_c: h.temperature_2m[i], wind_ms: h.wind_speed_10m[i] / 3.6 })),
+      source: "live",
+    };
+  } catch (primary) {
+    try {
+      const data = await fetchWeatherVisualCrossing(cap.lat, cap.lon, dayISO);
+      if (data.length) return { data, source: "visual-crossing", reason: "open_meteo_unavailable" };
+      throw new Error("vc_empty");
+    } catch (fb) {
+      return { data: [], source: "demo", reason: `${primary instanceof Error ? primary.message : "err"} / ${fb instanceof Error ? fb.message : "err"}` };
+    }
+  }
+}
+
+export interface DischargePoint { date: string; discharge_m3s: number; }
+
+export async function fetchRiverDischarge(lat: number, lon: number, from: string, to: string): Promise<{ data: DischargePoint[]; source: "open-meteo" | "visual-crossing" | "none"; reason?: string }> {
+  try {
+    const url = `https://flood-api.open-meteo.com/v1/flood?latitude=${lat}&longitude=${lon}&daily=river_discharge&start_date=${from}&end_date=${to}`;
+    const j = await fetchJson(url) as { daily?: { time: string[]; river_discharge: (number | null)[] } };
+    const d = j.daily;
+    if (!d?.time?.length) throw new Error("empty");
+    return {
+      data: d.time.map((t, i) => ({ date: t, discharge_m3s: (d.river_discharge[i] ?? 0) as number })),
+      source: "open-meteo",
+    };
+  } catch (primary) {
+    // Visual Crossing doesn't publish river discharge; fall back to precipitation as a proxy.
+    try {
+      const key = process.env.VISUAL_CROSSING_API_KEY;
+      if (!key) throw new Error("no_vc_key");
+      const url = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${lat},${lon}/${from}/${to}?unitGroup=metric&include=days&elements=datetime,precip&key=${encodeURIComponent(key)}&contentType=json`;
+      const j = await fetchJson(url) as { days?: Array<{ datetime: string; precip: number | null }> };
+      const days = j.days ?? [];
+      return {
+        data: days.map(d => ({ date: d.datetime, discharge_m3s: (d.precip ?? 0) as number })),
+        source: "visual-crossing",
+        reason: "discharge_unavailable_using_precip_proxy",
+      };
+    } catch (fb) {
+      return { data: [], source: "none", reason: `${primary instanceof Error ? primary.message : "err"} / ${fb instanceof Error ? fb.message : "err"}` };
+    }
   }
 }

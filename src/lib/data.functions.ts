@@ -5,7 +5,9 @@ import {
   fetchDayAheadPrices, fetchPhysicalFlows, fetchExplicitAllocation,
   fetchOutages, fetchLoadGen,
 } from "./entsoe.server";
-import { fetchWeather } from "./openmeteo.server";
+import { fetchWeather, fetchRiverDischarge } from "./openmeteo.server";
+import { DANUBE_STATION_COORDS } from "./markets";
+
 import { forecastPrices } from "./forecast";
 import {
   IMPORT_ROUTES, EXPORT_ROUTES, BORDERS, PRODUCTS, ZONES, type ZoneCode, type ProductType,
@@ -30,15 +32,17 @@ function expandRange(from?: string, to?: string, day?: string): string[] {
 
 type RangeInput = { day?: string; from?: string; to?: string };
 
+// BA has no DA/ID market — exclude from price/flow calculations.
+const DA_ZONES: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "SI", "ME", "MK", "AL"];
+
 export const getDashboardSnapshot = createServerFn({ method: "GET" })
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
     const headDay = days[0];
-    const zones: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "SI", "BA", "ME", "MK", "AL"];
 
     const prices = await Promise.all(
-      zones.map(async z => {
+      DA_ZONES.map(async z => {
         const all = await Promise.all(days.map(d => fetchDayAheadPrices(z, d)));
         return {
           zone: z,
@@ -67,6 +71,29 @@ export const getDashboardSnapshot = createServerFn({ method: "GET" })
 
     return { day: headDay, from: days[0], to: days[days.length - 1], prices, importRoutes, exportRoutes, byZone };
   });
+
+// Hourly DA price profile (avg per hour 0..23) across the date range, per zone.
+export const getAverageDAProfile = createServerFn({ method: "GET" })
+  .inputValidator((data: RangeInput) => data ?? {})
+  .handler(async ({ data }) => {
+    const days = expandRange(data?.from, data?.to, data?.day);
+    const zones = DA_ZONES;
+    const out = await Promise.all(zones.map(async z => {
+      const all = await Promise.all(days.map(d => fetchDayAheadPrices(z, d)));
+      const sums = new Array<number>(24).fill(0);
+      const counts = new Array<number>(24).fill(0);
+      for (const r of all) {
+        for (const p of r.data.points) {
+          const h = new Date(p.ts).getUTCHours();
+          if (Number.isFinite(p.price)) { sums[h] += p.price; counts[h] += 1; }
+        }
+      }
+      const profile = sums.map((s, i) => counts[i] ? s / counts[i] : null);
+      return { zone: z, profile, source: all[0]?.source ?? "empty", fetched_at: all[0]?.fetched_at ?? new Date().toISOString() };
+    }));
+    return { from: days[0], to: days[days.length - 1], zones, rows: out };
+  });
+
 
 export const getFlows = createServerFn({ method: "GET" })
   .inputValidator((data: RangeInput) => data ?? {})
@@ -109,7 +136,7 @@ export const getOutages = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
     const day = days[0];
-    const zones: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "BA", "ME", "MK", "AL"];
+    const zones: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "ME", "MK", "AL"];
     const res = await Promise.all(zones.map(z => fetchOutages(z, day)));
     return { day, rows: zones.flatMap((z, i) => res[i].data.map(o => ({ ...o, source: res[i].source, reason: res[i].reason }))) };
   });
@@ -119,10 +146,11 @@ export const getWeather = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
     const day = days[0];
-    const zones: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "BA", "ME", "MK", "AL"];
+    const zones: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "ME", "MK", "AL"];
     const res = await Promise.all(zones.map(z => fetchWeather(z, day)));
     return { day, rows: zones.map((z, i) => ({ zone: z, name: ZONES[z].name, ...res[i] })) };
   });
+
 
 export const getBalance = createServerFn({ method: "GET" })
   .inputValidator((data: RangeInput) => data ?? {})
@@ -304,3 +332,19 @@ export const updateSettings = createServerFn({ method: "POST" })
   });
 
 export { offsetISO, todayISO };
+
+// Danube river discharge — Open-Meteo flood API, Visual Crossing precipitation as fallback proxy.
+export const getDanubeDischarge = createServerFn({ method: "GET" })
+  .inputValidator((data: RangeInput) => data ?? {})
+  .handler(async ({ data }) => {
+    const days = expandRange(data?.from, data?.to, data?.day);
+    const from = days[0];
+    const to = days[days.length - 1];
+    const stations = Object.entries(DANUBE_STATION_COORDS);
+    const res = await Promise.all(stations.map(async ([name, c]) => {
+      const r = await fetchRiverDischarge(c.lat, c.lon, from, to);
+      return { name, ...r };
+    }));
+    return { from, to, stations: res };
+  });
+

@@ -43,13 +43,12 @@ export const MARKET_AGREEMENT_TYPES = {
 } as const;
 export type ProductType = keyof typeof MARKET_AGREEMENT_TYPES;
 
-// Import routes INTO Serbia (from app.py)
+// Import routes INTO Serbia. BA excluded — no DA/ID market.
 export const IMPORT_ROUTES: Array<{ from: ZoneCode; to: ZoneCode; label: string }> = [
   { from: "HU", to: "RS", label: "HU → RS" },
   { from: "RO", to: "RS", label: "RO → RS" },
   { from: "BG", to: "RS", label: "BG → RS" },
   { from: "HR", to: "RS", label: "HR → RS" },
-  { from: "BA", to: "RS", label: "BA → RS" },
   { from: "ME", to: "RS", label: "ME → RS" },
   { from: "MK", to: "RS", label: "MK → RS" },
   { from: "AL", to: "RS", label: "AL → RS" },
@@ -60,12 +59,11 @@ export const EXPORT_ROUTES: Array<{ from: ZoneCode; to: ZoneCode; label: string 
   { from: "RS", to: "RO", label: "RS → RO" },
   { from: "RS", to: "BG", label: "RS → BG" },
   { from: "RS", to: "HR", label: "RS → HR" },
-  { from: "RS", to: "BA", label: "RS → BA" },
   { from: "RS", to: "ME", label: "RS → ME" },
   { from: "RS", to: "MK", label: "RS → MK" },
 ];
 
-// CBC borders (undirected, then expanded directed)
+// CBC borders (undirected, then expanded directed). BA kept for capacity resale only.
 export const UNDIRECTED_BORDERS: Array<[ZoneCode, ZoneCode]> = [
   ["RS", "HU"], ["RS", "RO"], ["RS", "BG"], ["RS", "MK"],
   ["RS", "BA"], ["RS", "ME"], ["RS", "HR"],
@@ -78,10 +76,18 @@ export const BORDERS: Array<[ZoneCode, ZoneCode]> = [
 
 export const borderKey = (from: ZoneCode, to: ZoneCode) => `${from}_${to}`;
 
-export const DANUBE_STATIONS = [
-  "Bezdan", "Novi Sad", "Zemun", "Pancevo",
-  "Smederevo", "Veliko Gradiste", "Prahovo",
-];
+// Danube monitoring stations with coordinates for Open-Meteo flood API.
+export const DANUBE_STATION_COORDS: Record<string, { lat: number; lon: number }> = {
+  "Bezdan":           { lat: 45.85, lon: 18.96 },
+  "Novi Sad":         { lat: 45.26, lon: 19.85 },
+  "Zemun":            { lat: 44.84, lon: 20.40 },
+  "Pancevo":          { lat: 44.87, lon: 20.65 },
+  "Smederevo":        { lat: 44.66, lon: 20.93 },
+  "Veliko Gradiste":  { lat: 44.76, lon: 21.51 },
+  "Prahovo":          { lat: 44.30, lon: 22.60 },
+};
+export const DANUBE_STATIONS = Object.keys(DANUBE_STATION_COORDS);
+
 
 export const PRODUCTS: ProductType[] = ["annual", "monthly", "daily"];
 
