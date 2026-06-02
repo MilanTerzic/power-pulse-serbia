@@ -16,7 +16,13 @@ import {
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const offsetISO = (days: number) => new Date(Date.now() + days * 86400_000).toISOString().slice(0, 10);
 
-function expandRange(from?: string, to?: string, day?: string): string[] {
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const clean = (v?: string) => (v && ISO_DATE_RE.test(v) ? v : undefined);
+
+function expandRange(fromIn?: string, toIn?: string, dayIn?: string): string[] {
+  const from = clean(fromIn);
+  const to = clean(toIn);
+  const day = clean(dayIn);
   if (!from && !to && !day) return [todayISO()];
   if (from && to) {
     const s = new Date(from + "T00:00:00Z").getTime();
