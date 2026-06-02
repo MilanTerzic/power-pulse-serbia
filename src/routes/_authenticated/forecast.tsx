@@ -67,14 +67,8 @@ function ForecastPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Data source</Label>
-              <div className="flex gap-2">
-                <Button size="sm" variant={demo ? "outline" : "default"} onClick={() => setDemo(false)}>Live</Button>
-                <Button size="sm" variant={demo ? "default" : "outline"} onClick={() => setDemo(true)}>Demo</Button>
-              </div>
-            </div>
             <Button onClick={() => m.mutate()} disabled={m.isPending}>{m.isPending ? "Forecasting…" : "Run forecast"}</Button>
+
           </div>
         </Panel>
 
