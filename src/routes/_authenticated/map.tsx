@@ -156,8 +156,14 @@ function MapPage() {
               <defs>
                 <radialGradient id="bg-grad" cx="50%" cy="50%" r="60%">
                   <stop offset="0%" stopColor="oklch(0.22 0.02 250)" />
-                  <stop offset="100%" stopColor="oklch(0.15 0.015 250)" />
+                  <stop offset="100%" stopColor="oklch(0.13 0.015 250)" />
                 </radialGradient>
+                <linearGradient id="river-grad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="oklch(0.55 0.12 230)" stopOpacity="0" />
+                  <stop offset="20%" stopColor="oklch(0.55 0.12 230)" stopOpacity="0.7" />
+                  <stop offset="80%" stopColor="oklch(0.55 0.12 230)" stopOpacity="0.7" />
+                  <stop offset="100%" stopColor="oklch(0.55 0.12 230)" stopOpacity="0" />
+                </linearGradient>
                 <marker id="arrow-pos" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
                   <path d="M0,0 L10,5 L0,10 Z" fill="oklch(0.72 0.18 145)" />
                 </marker>
@@ -171,18 +177,49 @@ function MapPage() {
                   <feGaussianBlur stdDeviation="3" result="b" />
                   <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
                 </filter>
+                <filter id="land-shadow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="6" />
+                </filter>
               </defs>
 
               <rect x="0" y="50" width="720" height="460" fill="url(#bg-grad)" rx="8" />
 
+              {/* simplified SEE land backdrop */}
+              <g opacity="0.55" filter="url(#land-shadow)">
+                <path
+                  d="M 60,180 Q 120,120 220,130 Q 320,110 410,150 Q 520,140 620,180 Q 680,210 670,290 Q 650,360 580,400 Q 500,450 410,460 Q 320,475 250,455 Q 170,440 110,400 Q 50,350 55,280 Z"
+                  fill="oklch(0.28 0.025 240)"
+                />
+              </g>
+              <g opacity="0.4">
+                <path
+                  d="M 60,180 Q 120,120 220,130 Q 320,110 410,150 Q 520,140 620,180 Q 680,210 670,290 Q 650,360 580,400 Q 500,450 410,460 Q 320,475 250,455 Q 170,440 110,400 Q 50,350 55,280 Z"
+                  fill="none" stroke="oklch(0.45 0.04 240)" strokeWidth="1" strokeDasharray="3 4"
+                />
+              </g>
+
+              {/* Danube river — W→E through region */}
+              <path
+                d="M 80,170 Q 200,150 320,180 Q 380,200 410,285 Q 460,330 560,310 Q 640,295 700,260"
+                fill="none" stroke="url(#river-grad)" strokeWidth="3" strokeLinecap="round"
+              />
+              <text x="700" y="252" textAnchor="end" className="fill-info/60 text-[9px] italic">Danube</text>
+
               {/* subtle grid */}
-              <g opacity="0.08" stroke="currentColor">
+              <g opacity="0.06" stroke="currentColor">
                 {Array.from({ length: 9 }).map((_, i) => (
                   <line key={`v${i}`} x1={80 * i} y1={50} x2={80 * i} y2={510} strokeWidth="0.5" />
                 ))}
                 {Array.from({ length: 7 }).map((_, i) => (
                   <line key={`h${i}`} x1={0} y1={50 + 80 * i} x2={720} y2={50 + 80 * i} strokeWidth="0.5" />
                 ))}
+              </g>
+
+              {/* compass */}
+              <g transform="translate(670, 90)" opacity="0.6">
+                <circle r="18" fill="oklch(0.18 0.02 250)" stroke="oklch(0.45 0.04 240)" strokeWidth="0.5" />
+                <path d="M 0,-12 L 3,0 L 0,12 L -3,0 Z" fill="oklch(0.62 0.20 25)" opacity="0.8" />
+                <text y="-22" textAnchor="middle" className="fill-muted-foreground text-[9px] font-mono">N</text>
               </g>
 
               {/* edges */}
