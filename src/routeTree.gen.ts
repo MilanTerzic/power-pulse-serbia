@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedWeatherRouteImport } from './routes/_authenticated/weather'
 import { Route as AuthenticatedSpreadsRouteImport } from './routes/_authenticated/spreads'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedPricesRouteImport } from './routes/_authenticated/prices'
 import { Route as AuthenticatedOutagesRouteImport } from './routes/_authenticated/outages'
 import { Route as AuthenticatedMapRouteImport } from './routes/_authenticated/map'
@@ -21,6 +22,7 @@ import { Route as AuthenticatedForecastRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedFlowsRouteImport } from './routes/_authenticated/flows'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedDanubeRouteImport } from './routes/_authenticated/danube'
+import { Route as AuthenticatedCbcRouteImport } from './routes/_authenticated/cbc'
 import { Route as AuthenticatedCapacityRouteImport } from './routes/_authenticated/capacity'
 import { Route as AuthenticatedBalanceRouteImport } from './routes/_authenticated/balance'
 
@@ -46,6 +48,11 @@ const AuthenticatedWeatherRoute = AuthenticatedWeatherRouteImport.update({
 const AuthenticatedSpreadsRoute = AuthenticatedSpreadsRouteImport.update({
   id: '/spreads',
   path: '/spreads',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedPricesRoute = AuthenticatedPricesRouteImport.update({
@@ -83,6 +90,11 @@ const AuthenticatedDanubeRoute = AuthenticatedDanubeRouteImport.update({
   path: '/danube',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedCbcRoute = AuthenticatedCbcRouteImport.update({
+  id: '/cbc',
+  path: '/cbc',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedCapacityRoute = AuthenticatedCapacityRouteImport.update({
   id: '/capacity',
   path: '/capacity',
@@ -99,6 +111,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/balance': typeof AuthenticatedBalanceRoute
   '/capacity': typeof AuthenticatedCapacityRoute
+  '/cbc': typeof AuthenticatedCbcRoute
   '/danube': typeof AuthenticatedDanubeRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/flows': typeof AuthenticatedFlowsRoute
@@ -106,6 +119,7 @@ export interface FileRoutesByFullPath {
   '/map': typeof AuthenticatedMapRoute
   '/outages': typeof AuthenticatedOutagesRoute
   '/prices': typeof AuthenticatedPricesRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/spreads': typeof AuthenticatedSpreadsRoute
   '/weather': typeof AuthenticatedWeatherRoute
 }
@@ -114,6 +128,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/balance': typeof AuthenticatedBalanceRoute
   '/capacity': typeof AuthenticatedCapacityRoute
+  '/cbc': typeof AuthenticatedCbcRoute
   '/danube': typeof AuthenticatedDanubeRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/flows': typeof AuthenticatedFlowsRoute
@@ -121,6 +136,7 @@ export interface FileRoutesByTo {
   '/map': typeof AuthenticatedMapRoute
   '/outages': typeof AuthenticatedOutagesRoute
   '/prices': typeof AuthenticatedPricesRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/spreads': typeof AuthenticatedSpreadsRoute
   '/weather': typeof AuthenticatedWeatherRoute
 }
@@ -131,6 +147,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_authenticated/balance': typeof AuthenticatedBalanceRoute
   '/_authenticated/capacity': typeof AuthenticatedCapacityRoute
+  '/_authenticated/cbc': typeof AuthenticatedCbcRoute
   '/_authenticated/danube': typeof AuthenticatedDanubeRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/flows': typeof AuthenticatedFlowsRoute
@@ -138,6 +155,7 @@ export interface FileRoutesById {
   '/_authenticated/map': typeof AuthenticatedMapRoute
   '/_authenticated/outages': typeof AuthenticatedOutagesRoute
   '/_authenticated/prices': typeof AuthenticatedPricesRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/spreads': typeof AuthenticatedSpreadsRoute
   '/_authenticated/weather': typeof AuthenticatedWeatherRoute
 }
@@ -148,6 +166,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/balance'
     | '/capacity'
+    | '/cbc'
     | '/danube'
     | '/dashboard'
     | '/flows'
@@ -155,6 +174,7 @@ export interface FileRouteTypes {
     | '/map'
     | '/outages'
     | '/prices'
+    | '/settings'
     | '/spreads'
     | '/weather'
   fileRoutesByTo: FileRoutesByTo
@@ -163,6 +183,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/balance'
     | '/capacity'
+    | '/cbc'
     | '/danube'
     | '/dashboard'
     | '/flows'
@@ -170,6 +191,7 @@ export interface FileRouteTypes {
     | '/map'
     | '/outages'
     | '/prices'
+    | '/settings'
     | '/spreads'
     | '/weather'
   id:
@@ -179,6 +201,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/_authenticated/balance'
     | '/_authenticated/capacity'
+    | '/_authenticated/cbc'
     | '/_authenticated/danube'
     | '/_authenticated/dashboard'
     | '/_authenticated/flows'
@@ -186,6 +209,7 @@ export interface FileRouteTypes {
     | '/_authenticated/map'
     | '/_authenticated/outages'
     | '/_authenticated/prices'
+    | '/_authenticated/settings'
     | '/_authenticated/spreads'
     | '/_authenticated/weather'
   fileRoutesById: FileRoutesById
@@ -231,6 +255,13 @@ declare module '@tanstack/react-router' {
       path: '/spreads'
       fullPath: '/spreads'
       preLoaderRoute: typeof AuthenticatedSpreadsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/prices': {
@@ -282,6 +313,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDanubeRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/cbc': {
+      id: '/_authenticated/cbc'
+      path: '/cbc'
+      fullPath: '/cbc'
+      preLoaderRoute: typeof AuthenticatedCbcRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/capacity': {
       id: '/_authenticated/capacity'
       path: '/capacity'
@@ -302,6 +340,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteChildren {
   AuthenticatedBalanceRoute: typeof AuthenticatedBalanceRoute
   AuthenticatedCapacityRoute: typeof AuthenticatedCapacityRoute
+  AuthenticatedCbcRoute: typeof AuthenticatedCbcRoute
   AuthenticatedDanubeRoute: typeof AuthenticatedDanubeRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedFlowsRoute: typeof AuthenticatedFlowsRoute
@@ -309,6 +348,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedMapRoute: typeof AuthenticatedMapRoute
   AuthenticatedOutagesRoute: typeof AuthenticatedOutagesRoute
   AuthenticatedPricesRoute: typeof AuthenticatedPricesRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedSpreadsRoute: typeof AuthenticatedSpreadsRoute
   AuthenticatedWeatherRoute: typeof AuthenticatedWeatherRoute
 }
@@ -316,6 +356,7 @@ interface AuthenticatedRouteChildren {
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedBalanceRoute: AuthenticatedBalanceRoute,
   AuthenticatedCapacityRoute: AuthenticatedCapacityRoute,
+  AuthenticatedCbcRoute: AuthenticatedCbcRoute,
   AuthenticatedDanubeRoute: AuthenticatedDanubeRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedFlowsRoute: AuthenticatedFlowsRoute,
@@ -323,6 +364,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedMapRoute: AuthenticatedMapRoute,
   AuthenticatedOutagesRoute: AuthenticatedOutagesRoute,
   AuthenticatedPricesRoute: AuthenticatedPricesRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedSpreadsRoute: AuthenticatedSpreadsRoute,
   AuthenticatedWeatherRoute: AuthenticatedWeatherRoute,
 }
