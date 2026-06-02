@@ -80,15 +80,11 @@ function OverviewPage() {
       <TopBar
         title="Overview"
         subtitle="Where is it best to buy/sell electricity around Serbia today?"
-        demo={data?.demo || demo}
         lastRefresh={data?.prices?.[0]?.fetched_at}
         onRefresh={() => q.refetch()}
       />
       <div className="p-6 space-y-5">
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant={demo ? "outline" : "default"} onClick={() => setDemo(false)}>Live data</Button>
-          <Button size="sm" variant={demo ? "default" : "outline"} onClick={() => setDemo(true)}>Demo data</Button>
-        </div>
+
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <KPI label="SEEPEX today avg" value={fmtPrice(rsAvg)} source={data?.prices?.find(p => p.zone === "RS")?.source} />
