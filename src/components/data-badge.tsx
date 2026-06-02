@@ -8,6 +8,10 @@ const VARIANTS: Record<string, { label: string; className: string }> = {
   error:   { label: "ERROR",   className: "bg-destructive/15 text-destructive border-destructive/30" },
   ok:      { label: "OK",      className: "bg-success/15 text-success border-success/30" },
   partial: { label: "PARTIAL", className: "bg-warning/15 text-warning border-warning/30" },
+  "visual-crossing": { label: "VC FALLBACK", className: "bg-info/15 text-info border-info/30" },
+  "open-meteo": { label: "OPEN-METEO", className: "bg-success/15 text-success border-success/30" },
+  none:    { label: "NONE",    className: "bg-warning/15 text-warning border-warning/30" },
+
 };
 
 export function DataBadge({ source }: { source?: string }) {
