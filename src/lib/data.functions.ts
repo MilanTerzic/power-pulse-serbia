@@ -30,15 +30,17 @@ function expandRange(from?: string, to?: string, day?: string): string[] {
 
 type RangeInput = { day?: string; from?: string; to?: string };
 
+// BA has no DA/ID market — exclude from price/flow calculations.
+const DA_ZONES: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "SI", "ME", "MK", "AL"];
+
 export const getDashboardSnapshot = createServerFn({ method: "GET" })
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
     const headDay = days[0];
-    const zones: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "SI", "BA", "ME", "MK", "AL"];
 
     const prices = await Promise.all(
-      zones.map(async z => {
+      DA_ZONES.map(async z => {
         const all = await Promise.all(days.map(d => fetchDayAheadPrices(z, d)));
         return {
           zone: z,
@@ -67,6 +69,29 @@ export const getDashboardSnapshot = createServerFn({ method: "GET" })
 
     return { day: headDay, from: days[0], to: days[days.length - 1], prices, importRoutes, exportRoutes, byZone };
   });
+
+// Hourly DA price profile (avg per hour 0..23) across the date range, per zone.
+export const getAverageDAProfile = createServerFn({ method: "GET" })
+  .inputValidator((data: RangeInput) => data ?? {})
+  .handler(async ({ data }) => {
+    const days = expandRange(data?.from, data?.to, data?.day);
+    const zones = DA_ZONES;
+    const out = await Promise.all(zones.map(async z => {
+      const all = await Promise.all(days.map(d => fetchDayAheadPrices(z, d)));
+      const sums = new Array<number>(24).fill(0);
+      const counts = new Array<number>(24).fill(0);
+      for (const r of all) {
+        for (const p of r.data.points) {
+          const h = new Date(p.ts).getUTCHours();
+          if (Number.isFinite(p.price)) { sums[h] += p.price; counts[h] += 1; }
+        }
+      }
+      const profile = sums.map((s, i) => counts[i] ? s / counts[i] : null);
+      return { zone: z, profile, source: all[0]?.source ?? "empty", fetched_at: all[0]?.fetched_at ?? new Date().toISOString() };
+    }));
+    return { from: days[0], to: days[days.length - 1], zones, rows: out };
+  });
+
 
 export const getFlows = createServerFn({ method: "GET" })
   .inputValidator((data: RangeInput) => data ?? {})
