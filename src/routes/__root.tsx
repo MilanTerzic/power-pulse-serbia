@@ -120,6 +120,35 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const w = window as unknown as { __staleReloadInstalled?: boolean };
+    if (w.__staleReloadInstalled) return;
+    w.__staleReloadInstalled = true;
+
+    const origFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const res = await origFetch(...args);
+      try {
+        const ct = res.headers.get("content-type") ?? "";
+        if (res.ok && ct.includes("application/json")) {
+          const cloned = res.clone();
+          const data = await cloned.json().catch(() => null);
+          if (data && data.fallback === true && data.error === "STALE_CLIENT") {
+            const k = "__lovable_stale_reload";
+            if (!sessionStorage.getItem(k)) {
+              sessionStorage.setItem(k, "1");
+              window.location.reload();
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+      return res;
+    };
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
