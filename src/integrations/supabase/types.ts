@@ -14,7 +14,219 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      api_cache: {
+        Row: {
+          fetched_at: string
+          key: string
+          payload: Json
+          ttl_seconds: number
+        }
+        Insert: {
+          fetched_at?: string
+          key: string
+          payload: Json
+          ttl_seconds?: number
+        }
+        Update: {
+          fetched_at?: string
+          key?: string
+          payload?: Json
+          ttl_seconds?: number
+        }
+        Relationships: []
+      }
+      audit_log: {
+        Row: {
+          action: string
+          created_at: string
+          detail: Json | null
+          id: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          detail?: Json | null
+          id?: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          detail?: Json | null
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      capacity_price_overrides: {
+        Row: {
+          border_from: string
+          border_to: string
+          created_at: string
+          id: string
+          note: string | null
+          period_end: string
+          period_start: string
+          price_eur_mwh: number
+          product_type: string
+          user_id: string
+        }
+        Insert: {
+          border_from: string
+          border_to: string
+          created_at?: string
+          id?: string
+          note?: string | null
+          period_end: string
+          period_start: string
+          price_eur_mwh: number
+          product_type: string
+          user_id: string
+        }
+        Update: {
+          border_from?: string
+          border_to?: string
+          created_at?: string
+          id?: string
+          note?: string | null
+          period_end?: string
+          period_start?: string
+          price_eur_mwh?: number
+          product_type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      forecast_results: {
+        Row: {
+          history_days: number
+          horizon_h: number
+          id: string
+          mae: number | null
+          mape: number | null
+          model_used: string
+          payload: Json
+          run_at: string
+          user_id: string
+        }
+        Insert: {
+          history_days: number
+          horizon_h: number
+          id?: string
+          mae?: number | null
+          mape?: number | null
+          model_used: string
+          payload: Json
+          run_at?: string
+          user_id: string
+        }
+        Update: {
+          history_days?: number
+          horizon_h?: number
+          id?: string
+          mae?: number | null
+          mape?: number | null
+          model_used?: string
+          payload?: Json
+          run_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      manual_capacity_positions: {
+        Row: {
+          annual_booked_price: number
+          booked_mw: number
+          border_from: string
+          border_to: string
+          created_at: string
+          end_date: string
+          fees: number
+          id: string
+          notes: string | null
+          position_name: string
+          preferred_resale_mode: string
+          product_type: string
+          start_date: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          annual_booked_price?: number
+          booked_mw: number
+          border_from: string
+          border_to: string
+          created_at?: string
+          end_date: string
+          fees?: number
+          id?: string
+          notes?: string | null
+          position_name: string
+          preferred_resale_mode?: string
+          product_type?: string
+          start_date: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          annual_booked_price?: number
+          booked_mw?: number
+          border_from?: string
+          border_to?: string
+          created_at?: string
+          end_date?: string
+          fees?: number
+          id?: string
+          notes?: string | null
+          position_name?: string
+          preferred_resale_mode?: string
+          product_type?: string
+          start_date?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          created_at: string
+          demo_mode: boolean
+          history_days: number
+          max_mw: number
+          min_margin: number
+          refresh_mode: string
+          selected_borders: string[]
+          selected_countries: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          demo_mode?: boolean
+          history_days?: number
+          max_mw?: number
+          min_margin?: number
+          refresh_mode?: string
+          selected_borders?: string[]
+          selected_countries?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          demo_mode?: boolean
+          history_days?: number
+          max_mw?: number
+          min_margin?: number
+          refresh_mode?: string
+          selected_borders?: string[]
+          selected_countries?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

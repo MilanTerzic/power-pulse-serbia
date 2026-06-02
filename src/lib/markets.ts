@@ -1,0 +1,93 @@
+// Central market/zone/border config, ported from market_config.py + cbc_capacity_resale_dashboard.py
+export type ZoneCode =
+  | "RS" | "HU" | "RO" | "BG" | "HR" | "SI" | "BA" | "ME" | "MK" | "AL" | "UA" | "XK";
+
+export interface Zone {
+  code: ZoneCode;
+  name: string;
+  eic: string;
+  x: number;
+  y: number;
+  capital?: { lat: number; lon: number };
+}
+
+export const ZONES: Record<ZoneCode, Zone> = {
+  RS: { code: "RS", name: "Serbia",                 eic: "10YCS-SERBIATSOV", x: 410, y: 285, capital: { lat: 44.81, lon: 20.46 } },
+  HU: { code: "HU", name: "Hungary",                eic: "10YHU-MAVIR----U", x: 375, y: 160, capital: { lat: 47.50, lon: 19.04 } },
+  RO: { code: "RO", name: "Romania",                eic: "10YRO-TEL------P", x: 575, y: 235, capital: { lat: 44.43, lon: 26.10 } },
+  BG: { code: "BG", name: "Bulgaria",               eic: "10YCA-BULGARIA-R", x: 560, y: 335, capital: { lat: 42.70, lon: 23.32 } },
+  HR: { code: "HR", name: "Croatia",                eic: "10YHR-HEP------M", x: 190, y: 245, capital: { lat: 45.81, lon: 15.98 } },
+  SI: { code: "SI", name: "Slovenia",               eic: "10YSI-ELES-----O", x: 110, y: 200, capital: { lat: 46.06, lon: 14.51 } },
+  BA: { code: "BA", name: "Bosnia and Herzegovina", eic: "10YBA-JPCC-----D", x: 260, y: 290, capital: { lat: 43.86, lon: 18.41 } },
+  ME: { code: "ME", name: "Montenegro",             eic: "10YCS-CG-TSO---S", x: 320, y: 370, capital: { lat: 42.44, lon: 19.26 } },
+  MK: { code: "MK", name: "North Macedonia",        eic: "10YMK-MEPSO----8", x: 430, y: 405, capital: { lat: 41.99, lon: 21.43 } },
+  AL: { code: "AL", name: "Albania",                eic: "10YAL-KESH-----5", x: 250, y: 445, capital: { lat: 41.33, lon: 19.82 } },
+  UA: { code: "UA", name: "Ukraine",                eic: "10Y1001C--00003F", x: 640, y: 110, capital: { lat: 50.45, lon: 30.52 } },
+  XK: { code: "XK", name: "Kosovo",                 eic: "10Y1001C--00100H", x: 380, y: 365, capital: { lat: 42.66, lon: 21.16 } },
+};
+
+export const ENTSOE_DOCUMENT_TYPES = {
+  day_ahead_prices: "A44",
+  physical_flows: "A11",
+  explicit_allocations: "A25",
+  production_unit_unavailability: "A77",
+  generation_unit_unavailability: "A80",
+  system_total_load: "A65",
+  actual_generation: "A75",
+} as const;
+
+export const MARKET_AGREEMENT_TYPES = {
+  daily: "A01",
+  monthly: "A03",
+  annual: "A04",
+} as const;
+export type ProductType = keyof typeof MARKET_AGREEMENT_TYPES;
+
+// Import routes INTO Serbia (from app.py)
+export const IMPORT_ROUTES: Array<{ from: ZoneCode; to: ZoneCode; label: string }> = [
+  { from: "HU", to: "RS", label: "HU → RS" },
+  { from: "RO", to: "RS", label: "RO → RS" },
+  { from: "BG", to: "RS", label: "BG → RS" },
+  { from: "HR", to: "RS", label: "HR → RS" },
+  { from: "BA", to: "RS", label: "BA → RS" },
+  { from: "ME", to: "RS", label: "ME → RS" },
+  { from: "MK", to: "RS", label: "MK → RS" },
+  { from: "AL", to: "RS", label: "AL → RS" },
+];
+
+export const EXPORT_ROUTES: Array<{ from: ZoneCode; to: ZoneCode; label: string }> = [
+  { from: "RS", to: "HU", label: "RS → HU" },
+  { from: "RS", to: "RO", label: "RS → RO" },
+  { from: "RS", to: "BG", label: "RS → BG" },
+  { from: "RS", to: "HR", label: "RS → HR" },
+  { from: "RS", to: "BA", label: "RS → BA" },
+  { from: "RS", to: "ME", label: "RS → ME" },
+  { from: "RS", to: "MK", label: "RS → MK" },
+];
+
+// CBC borders (undirected, then expanded directed)
+export const UNDIRECTED_BORDERS: Array<[ZoneCode, ZoneCode]> = [
+  ["RS", "HU"], ["RS", "RO"], ["RS", "BG"], ["RS", "MK"],
+  ["RS", "BA"], ["RS", "ME"], ["RS", "HR"],
+  ["BA", "HR"], ["BA", "ME"], ["ME", "AL"], ["ME", "XK"],
+];
+export const BORDERS: Array<[ZoneCode, ZoneCode]> = [
+  ...UNDIRECTED_BORDERS,
+  ...UNDIRECTED_BORDERS.map(([a, b]) => [b, a] as [ZoneCode, ZoneCode]),
+];
+
+export const borderKey = (from: ZoneCode, to: ZoneCode) => `${from}_${to}`;
+
+export const DANUBE_STATIONS = [
+  "Bezdan", "Novi Sad", "Zemun", "Pancevo",
+  "Smederevo", "Veliko Gradiste", "Prahovo",
+];
+
+export const PRODUCTS: ProductType[] = ["annual", "monthly", "daily"];
+
+export const ROUTE_COLORS = {
+  positive: "var(--color-success)",
+  negative: "var(--color-destructive)",
+  neutral:  "var(--color-muted-foreground)",
+  warn:     "var(--color-warning)",
+};
