@@ -25,8 +25,8 @@ const NAV = [
 export function Sidebar() {
   const loc = useLocation();
   const nav = useNavigate();
-  const signOut = async () => {
-    await supabase.auth.signOut();
+  const signOut = () => {
+    try { localStorage.removeItem(AUTH_KEY); } catch {}
     nav({ to: "/login" });
   };
   return (
