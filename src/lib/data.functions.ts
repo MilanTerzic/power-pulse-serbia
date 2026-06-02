@@ -577,13 +577,15 @@ export const runForecastV2 = createServerFn({ method: "POST" })
     const warnings: string[] = [];
 
     // 1. Fetch SEEPEX history, fundamentals, and EEX in parallel.
-    const maxDays = product === "da" ? 120 : 365;
+    const maxDays = 365;
     const historyP = fetchSeepexHistory(historyFrom, historyTo, maxDays);
 
     const balanceP = useFund ? fetchLoadGen("RS", historyTo).catch(() => null) : Promise.resolve(null);
     const outagesP = useFund ? fetchOutages("RS", historyTo).catch(() => null) : Promise.resolve(null);
-    const danubeP = useFund ? fetchRiverDischarge(
-      DANUBE_STATION_COORDS["Belgrade"].lat, DANUBE_STATION_COORDS["Belgrade"].lon,
+    // Use Zemun (Belgrade area) as the Danube reference station.
+    const danubeStation = DANUBE_STATION_COORDS["Zemun"];
+    const danubeP = useFund && danubeStation ? fetchRiverDischarge(
+      danubeStation.lat, danubeStation.lon,
       new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10), historyTo,
     ).catch(() => null) : Promise.resolve(null);
     const weatherP = useFund ? fetchWeather("RS", historyTo).catch(() => null) : Promise.resolve(null);
