@@ -209,7 +209,7 @@ export async function fetchPhysicalFlows(from: ZoneCode, to: ZoneCode, dayISO: s
       .filter(p => { const t = Date.parse(p.ts); return t >= startMs && t < endMs; })
       .map(p => ({ ts: p.ts, mw: p.value }));
     const payload: FlowSeries = { from, to, points: series };
-    await cacheSet(key, payload);
+    await cacheSet(key, payload, ttlFor(TTL.flow_today, TTL.flow_past, dayISO));
     return { data: payload, source: series.length ? "live" : "empty", fetched_at: new Date().toISOString() };
 
   } catch (e) {
