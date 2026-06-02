@@ -545,18 +545,18 @@ interface ForecastV2Input {
   use_fundamentals?: boolean;
 }
 
-async function fetchSeepexHistory(fromISO: string, toISO: string): Promise<Array<{ ts: string; price: number }>> {
+async function fetchSeepexHistory(fromISO: string, toISO: string, maxDays = 180): Promise<Array<{ ts: string; price: number }>> {
   const from = new Date(fromISO + "T00:00:00Z").getTime();
   const to = new Date(toISO + "T00:00:00Z").getTime();
   const days: string[] = [];
   for (let t = from; t <= to; t += 86400_000) days.push(new Date(t).toISOString().slice(0, 10));
-  // Limit huge ranges (>720 days) to last 720 to keep latency reasonable.
-  const useDays = days.length > 720 ? days.slice(-720) : days;
-  const BATCH = 30;
+  // Cap range to keep server function under the worker timeout.
+  const useDays = days.length > maxDays ? days.slice(-maxDays) : days;
+  const BATCH = 60;
   const out: Array<{ ts: string; price: number }> = [];
   for (let i = 0; i < useDays.length; i += BATCH) {
     const chunk = useDays.slice(i, i + BATCH);
-    const res = await Promise.all(chunk.map(d => fetchDayAheadPrices("RS", d)));
+    const res = await Promise.all(chunk.map(d => fetchDayAheadPrices("RS", d).catch(() => ({ data: { points: [] as Array<{ ts: string; price: number }> } }))));
     for (const r of res) out.push(...r.data.points);
   }
   return out.sort((a, b) => a.ts < b.ts ? -1 : 1);
@@ -576,8 +576,25 @@ export const runForecastV2 = createServerFn({ method: "POST" })
 
     const warnings: string[] = [];
 
-    // 1. SEEPEX history
-    const history = await fetchSeepexHistory(historyFrom, historyTo);
+    // 1. Fetch SEEPEX history, fundamentals, and EEX in parallel.
+    const maxDays = product === "da" ? 120 : 365;
+    const historyP = fetchSeepexHistory(historyFrom, historyTo, maxDays);
+
+    const balanceP = useFund ? fetchLoadGen("RS", historyTo).catch(() => null) : Promise.resolve(null);
+    const outagesP = useFund ? fetchOutages("RS", historyTo).catch(() => null) : Promise.resolve(null);
+    const danubeP = useFund ? fetchRiverDischarge(
+      DANUBE_STATION_COORDS["Belgrade"].lat, DANUBE_STATION_COORDS["Belgrade"].lon,
+      new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10), historyTo,
+    ).catch(() => null) : Promise.resolve(null);
+    const weatherP = useFund ? fetchWeather("RS", historyTo).catch(() => null) : Promise.resolve(null);
+    const eexP = fetchEexFutures().catch(() => ({
+      source: "unavailable" as const, reason: "fetch failed", prices: [] as Array<{ product: EexProduct; price_eur_mwh: number }>, fetched_at: new Date().toISOString(),
+    }));
+
+    const [history, balance, outRes, danube, wx, eex] = await Promise.all([
+      historyP, balanceP, outagesP, danubeP, weatherP, eexP,
+    ]);
+
     if (!history.length) {
       return {
         product, loadType, horizon, historyFrom, historyTo,
@@ -589,91 +606,76 @@ export const runForecastV2 = createServerFn({ method: "POST" })
     }
     const latest = history[history.length - 1];
 
-    // 2. Fundamentals (load, outages, danube, weather) — best-effort.
+    // 2. Build driver cards from the fundamentals fetched above.
     const drivers: Driver[] = [];
     let fundamentalAdj = 0;
 
     if (useFund) {
-      try {
-        const balance = await fetchLoadGen("RS", historyTo).catch(() => null);
-        if (balance?.data?.length) {
-          const last = balance.data.slice(-24);
-          const avgLoad = last.reduce((s, p) => s + (p.load_mw ?? 0), 0) / Math.max(1, last.length);
-          const prevDay = balance.data.slice(-48, -24);
-          const prevLoad = prevDay.reduce((s, p) => s + (p.load_mw ?? 0), 0) / Math.max(1, prevDay.length);
-          const delta = prevLoad ? (avgLoad - prevLoad) / prevLoad : 0;
-          drivers.push({
-            key: "load", label: "Load trend (RS, last 24h vs prev)",
-            value: `${avgLoad.toFixed(0)} MW`,
-            trend: delta > 0.02 ? "up" : delta < -0.02 ? "down" : "flat",
-            impact: delta > 0.02 ? "bullish" : delta < -0.02 ? "bearish" : "neutral",
-            explain: `${(delta * 100).toFixed(1)}% vs previous day`,
-          });
-          fundamentalAdj += delta * 8;
-        } else {
-          drivers.push({ key: "load", label: "Load", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
-        }
-      } catch { /* ignore */ }
+      if (balance?.data?.length) {
+        const last = balance.data.slice(-24);
+        const avgLoad = last.reduce((s, p) => s + (p.load_mw ?? 0), 0) / Math.max(1, last.length);
+        const prevDay = balance.data.slice(-48, -24);
+        const prevLoad = prevDay.reduce((s, p) => s + (p.load_mw ?? 0), 0) / Math.max(1, prevDay.length);
+        const delta = prevLoad ? (avgLoad - prevLoad) / prevLoad : 0;
+        drivers.push({
+          key: "load", label: "Load trend (RS, last 24h vs prev)",
+          value: `${avgLoad.toFixed(0)} MW`,
+          trend: delta > 0.02 ? "up" : delta < -0.02 ? "down" : "flat",
+          impact: delta > 0.02 ? "bullish" : delta < -0.02 ? "bearish" : "neutral",
+          explain: `${(delta * 100).toFixed(1)}% vs previous day`,
+        });
+        fundamentalAdj += delta * 8;
+      } else {
+        drivers.push({ key: "load", label: "Load", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
+      }
 
-      try {
-        const outRes = await fetchOutages("RS", historyTo).catch(() => null);
-        if (outRes?.data?.length) {
-          const total = outRes.data.reduce((s, o) => s + (o.mw ?? 0), 0);
-          drivers.push({
-            key: "outages", label: "Generation outages (RS)",
-            value: `${total.toFixed(0)} MW unavailable`,
-            trend: total > 500 ? "up" : "flat",
-            impact: total > 500 ? "bullish" : "neutral",
-            explain: `${outRes.data.length} active outage records`,
-          });
-          fundamentalAdj += Math.min(8, total / 250);
-        } else {
-          drivers.push({ key: "outages", label: "Outages", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
-        }
-      } catch { /* ignore */ }
+      if (outRes?.data?.length) {
+        const total = outRes.data.reduce((s, o) => s + (o.mw ?? 0), 0);
+        drivers.push({
+          key: "outages", label: "Generation outages (RS)",
+          value: `${total.toFixed(0)} MW unavailable`,
+          trend: total > 500 ? "up" : "flat",
+          impact: total > 500 ? "bullish" : "neutral",
+          explain: `${outRes.data.length} active outage records`,
+        });
+        fundamentalAdj += Math.min(8, total / 250);
+      } else {
+        drivers.push({ key: "outages", label: "Outages", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
+      }
 
-      try {
-        const danube = await fetchRiverDischarge(
-          DANUBE_STATION_COORDS["Belgrade"].lat, DANUBE_STATION_COORDS["Belgrade"].lon,
-          new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10), historyTo,
-        ).catch(() => null);
-        const series = (danube?.data ?? []).map(d => d.discharge_m3s).filter((v): v is number => Number.isFinite(v));
-        if (series.length >= 2) {
-          const last = series[series.length - 1];
-          const avg = series.reduce((a, b) => a + b, 0) / series.length;
-          const dev = avg > 0 ? (last - avg) / avg : 0;
-          drivers.push({
-            key: "danube", label: "Danube discharge (Belgrade, 7d)",
-            value: `${last.toFixed(0)} m³/s`,
-            trend: dev > 0.05 ? "up" : dev < -0.05 ? "down" : "flat",
-            impact: dev > 0.05 ? "bearish" : dev < -0.05 ? "bullish" : "neutral",
-            explain: `${(dev * 100).toFixed(1)}% vs 7d avg (more water → more hydro → softer prices)`,
-          });
-          fundamentalAdj += -dev * 5;
-        } else {
-          drivers.push({ key: "danube", label: "Danube", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
-        }
-      } catch { /* ignore */ }
+      const series = (danube?.data ?? []).map(d => d.discharge_m3s).filter((v): v is number => Number.isFinite(v));
+      if (series.length >= 2) {
+        const last = series[series.length - 1];
+        const avg = series.reduce((a, b) => a + b, 0) / series.length;
+        const dev = avg > 0 ? (last - avg) / avg : 0;
+        drivers.push({
+          key: "danube", label: "Danube discharge (Belgrade, 7d)",
+          value: `${last.toFixed(0)} m³/s`,
+          trend: dev > 0.05 ? "up" : dev < -0.05 ? "down" : "flat",
+          impact: dev > 0.05 ? "bearish" : dev < -0.05 ? "bullish" : "neutral",
+          explain: `${(dev * 100).toFixed(1)}% vs 7d avg (more water → more hydro → softer prices)`,
+        });
+        fundamentalAdj += -dev * 5;
+      } else {
+        drivers.push({ key: "danube", label: "Danube", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
+      }
 
-      try {
-        const wx = await fetchWeather("RS", historyTo).catch(() => null);
-        const temps = (wx?.data ?? []).map(p => p.temp_c).filter((v): v is number => Number.isFinite(v));
-        if (temps.length) {
-          const t = Math.max(...temps);
-          const baseTemp = 18;
-          const dd = t < baseTemp ? baseTemp - t : t - 24;
-          drivers.push({
-            key: "weather", label: "Belgrade peak temp (today)",
-            value: `${t.toFixed(1)} °C`,
-            trend: t > 26 ? "up" : t < 5 ? "up" : "flat",
-            impact: dd > 5 ? "bullish" : "neutral",
-            explain: dd > 5 ? `Strong ${t < baseTemp ? "heating" : "cooling"} demand` : "Mild conditions",
-          });
-          fundamentalAdj += Math.max(0, dd - 5) * 0.5;
-        } else {
-          drivers.push({ key: "weather", label: "Weather", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
-        }
-      } catch { /* ignore */ }
+      const temps = (wx?.data ?? []).map(p => p.temp_c).filter((v): v is number => Number.isFinite(v));
+      if (temps.length) {
+        const t = Math.max(...temps);
+        const baseTemp = 18;
+        const dd = t < baseTemp ? baseTemp - t : t - 24;
+        drivers.push({
+          key: "weather", label: "Belgrade peak temp (today)",
+          value: `${t.toFixed(1)} °C`,
+          trend: t > 26 ? "up" : t < 5 ? "up" : "flat",
+          impact: dd > 5 ? "bullish" : "neutral",
+          explain: dd > 5 ? `Strong ${t < baseTemp ? "heating" : "cooling"} demand` : "Mild conditions",
+        });
+        fundamentalAdj += Math.max(0, dd - 5) * 0.5;
+      } else {
+        drivers.push({ key: "weather", label: "Weather", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
+      }
     }
 
     // Calendar driver (always available)
@@ -688,9 +690,6 @@ export const runForecastV2 = createServerFn({ method: "POST" })
     });
 
     // 3. EEX futures anchor
-    const eex = await fetchEexFutures().catch(() => ({
-      source: "unavailable" as const, reason: "fetch failed", prices: [], fetched_at: new Date().toISOString(),
-    }));
     const wantedEex: EexProduct | null = product === "week" ? "week" : product === "month" ? "month" : null;
     const eexAnchor = wantedEex ? (eex.prices.find(p => p.product === wantedEex)?.price_eur_mwh ?? null) : null;
     const eexFresh = eex.source !== "unavailable";
