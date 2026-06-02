@@ -52,10 +52,52 @@ function CBCPage() {
 }
 
 // ============================================================================
-// Resale PnL — per-position monthly breakdown
+// Resale PnL — per-position monthly breakdown with persisted strategy & ARIMA
 // ============================================================================
 
-type SellAs = "monthly" | "daily" | "annual";
+type SellAs = "monthly" | "daily" | "annual" | "";
+
+const STORAGE_KEY = "cbc_sell_as_v1";
+
+// Default strategy per border (from screenshot), Jan..Jun 2026 only.
+const DEFAULT_STRATEGY: Record<string, Record<string, SellAs>> = {
+  "HR_BA_2026": { "1": "monthly", "2": "monthly", "3": "daily", "4": "monthly", "5": "daily", "6": "monthly" },
+  "BA_ME_2026": { "1": "monthly", "2": "monthly", "3": "daily", "4": "daily",   "5": "daily", "6": "daily" },
+  "BA_MNE_2026": { "1": "monthly", "2": "monthly", "3": "daily", "4": "daily",   "5": "daily", "6": "daily" },
+};
+
+function loadStored(): Record<string, Record<string, SellAs>> {
+  if (typeof window === "undefined") return {};
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; }
+}
+function saveStored(v: Record<string, Record<string, SellAs>>) {
+  if (typeof window === "undefined") return;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(v)); } catch { /* noop */ }
+}
+
+function posDefaultKey(pos: { from: string; to: string; year: number }) {
+  return `${pos.from}_${pos.to}_${pos.year}`;
+}
+
+// Lightweight AR(1) + drift forecast. Returns mean forecast and confidence label.
+function arimaLikeForecast(history: number[], stepsAhead: number): { forecast: number | null; confidence: "low" | "medium" | "high" | "none" } {
+  const xs = history.filter(v => Number.isFinite(v));
+  if (xs.length < 2) return { forecast: xs[xs.length - 1] ?? null, confidence: xs.length === 1 ? "low" : "none" };
+  const n = xs.length;
+  const mean = xs.reduce((a, b) => a + b, 0) / n;
+  let num = 0, den = 0;
+  for (let i = 1; i < n; i++) { num += (xs[i] - mean) * (xs[i - 1] - mean); den += (xs[i - 1] - mean) ** 2; }
+  const phi = den > 0 ? Math.max(-0.95, Math.min(0.95, num / den)) : 0;
+  const driftPerStep = (xs[n - 1] - xs[0]) / (n - 1);
+  let prev = xs[n - 1];
+  let f = prev;
+  for (let s = 0; s < stepsAhead; s++) {
+    f = mean + phi * (prev - mean) + driftPerStep * 0.5;
+    prev = f;
+  }
+  const conf = n >= 12 ? "high" : n >= 6 ? "medium" : "low";
+  return { forecast: f, confidence: conf };
+}
 
 function PnLBreakdown() {
   const fn = useServerFn(getMonthlyResaleBreakdown);
@@ -65,80 +107,128 @@ function PnLBreakdown() {
     queryFn: () => fn({ data: { from: range.from, to: range.to } }),
   });
 
-  // sell-as selection: { [position_id]: { [`${year}-${month}`]: SellAs } }
-  const [sellAs, setSellAs] = useState<Record<string, Record<string, SellAs>>>({});
+  const [sellAs, setSellAs] = useState<Record<string, Record<string, SellAs>>>(() => loadStored());
+  useEffect(() => { saveStored(sellAs); }, [sellAs]);
+
   const positions = q.data?.positions ?? [];
 
-  // Helper: resolve effective resale price for a row given user choice
-  const resolveRow = (
-    pos: (typeof positions)[number],
-    row: (typeof positions)[number]["rows"][number],
-    mode: SellAs,
-  ) => {
-    let price: number | null = null;
-    if (mode === "monthly") price = row.monthly_price;
-    else if (mode === "daily") price = row.daily_price;
-    else if (mode === "annual") price = pos.annual_current_price;
-    if (price == null) return { mode, price: null, spread: null, pnl: null };
-    const spread = price - pos.annual_booked_price;
-    const pnl = spread * pos.booked_mw * row.hours;
-    return { mode, price, spread, pnl };
-  };
+  // Seed defaults once per position (only Jan..Jun for known borders).
+  const seededRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!positions.length) return;
+    let changed = false;
+    const next = { ...sellAs };
+    for (const pos of positions) {
+      const key = posDefaultKey(pos);
+      if (seededRef.current.has(key)) continue;
+      seededRef.current.add(key);
+      const defaults = DEFAULT_STRATEGY[key];
+      if (!defaults) continue;
+      const cur = { ...(next[key] ?? {}) };
+      for (const [m, v] of Object.entries(defaults)) {
+        if (cur[m] == null || cur[m] === "") { cur[m] = v; changed = true; }
+      }
+      next[key] = cur;
+    }
+    if (changed) setSellAs(next);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positions]);
 
-  const getMode = (posId: string, key: string): SellAs =>
-    sellAs[posId]?.[key] ?? "monthly";
+  const getMode = (pos: PosForCard, month: number): SellAs =>
+    (sellAs[posDefaultKey(pos)]?.[String(month)] as SellAs) ?? "";
+  const setMode = (pos: PosForCard, month: number, mode: SellAs) =>
+    setSellAs(s => {
+      const k = posDefaultKey(pos);
+      return { ...s, [k]: { ...(s[k] ?? {}), [String(month)]: mode } };
+    });
 
-  const setMode = (posId: string, key: string, mode: SellAs) =>
-    setSellAs(s => ({ ...s, [posId]: { ...(s[posId] ?? {}), [key]: mode } }));
+  const todayKey = (() => { const d = new Date(); return d.getFullYear() * 100 + (d.getMonth() + 1); })();
 
-  // Portfolio aggregates
   const agg = useMemo(() => {
-    let totalPnL = 0;
-    let calculated = 0;
-    let missing = 0;
+    let totalPnL = 0; let calculated = 0; let missing = 0;
     for (const pos of positions) {
       for (const row of pos.rows) {
-        const mode = getMode(pos.position_id, `${row.year}-${row.month}`);
-        const r = resolveRow(pos, row, mode);
-        if (r.pnl == null) missing++;
-        else { totalPnL += r.pnl; calculated++; }
+        const mode = getMode(pos, row.month);
+        if (!mode) { missing++; continue; }
+        let price: number | null = null;
+        if (mode === "monthly") price = row.monthly_price;
+        else if (mode === "daily") price = row.daily_price;
+        else if (mode === "annual") price = pos.annual_current_price;
+        if (price == null) { missing++; continue; }
+        totalPnL += (price - pos.annual_booked_price) * pos.booked_mw * row.hours;
+        calculated++;
       }
     }
     return { totalPnL, calculated, missing };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions, sellAs]);
 
+  const predictions = useMemo(() => {
+    const out: Record<string, Rec[]> = {};
+    for (const pos of positions) {
+      const histM: number[] = [];
+      const histD: number[] = [];
+      for (const r of pos.rows) {
+        const k = r.year * 100 + r.month;
+        if (k < todayKey) {
+          if (r.monthly_price != null) histM.push(r.monthly_price);
+          if (r.daily_price != null) histD.push(r.daily_price);
+        }
+      }
+      const recs: Rec[] = [];
+      let step = 1;
+      for (const r of pos.rows) {
+        const k = r.year * 100 + r.month;
+        if (k < todayKey) continue;
+        const fm = arimaLikeForecast(histM, step);
+        const fd = arimaLikeForecast(histD, step);
+        const pnl_m = fm.forecast == null ? null : (fm.forecast - pos.annual_booked_price) * pos.booked_mw * r.hours;
+        const pnl_d = fd.forecast == null ? null : (fd.forecast - pos.annual_booked_price) * pos.booked_mw * r.hours;
+        let rec: Rec["rec"] = "none";
+        if (pnl_m != null && pnl_d != null) rec = pnl_m >= pnl_d ? "monthly" : "daily";
+        else if (pnl_m != null) rec = "monthly";
+        else if (pnl_d != null) rec = "daily";
+        const conf = fm.confidence === "none" && fd.confidence === "none" ? "none" :
+          fm.confidence === "high" || fd.confidence === "high" ? "high" :
+          fm.confidence === "medium" || fd.confidence === "medium" ? "medium" : "low";
+        recs.push({ month: r.month, monthly_fcst: fm.forecast, daily_fcst: fd.forecast, pnl_m, pnl_d, rec, conf });
+        step++;
+      }
+      out[posDefaultKey(pos)] = recs;
+    }
+    return out;
+  }, [positions, todayKey]);
+
+  const applyRecForPos = (pos: PosForCard) => {
+    const recs = predictions[posDefaultKey(pos)] ?? [];
+    setSellAs(s => {
+      const k = posDefaultKey(pos);
+      const cur = { ...(s[k] ?? {}) };
+      for (const r of recs) {
+        if (r.rec === "none") continue;
+        const m = String(r.month);
+        if (!cur[m]) cur[m] = r.rec;
+      }
+      return { ...s, [k]: cur };
+    });
+    toast.success("Applied ARIMA recommendations to empty months");
+  };
+
   const rangeLabel = range.from === range.to ? range.from : `${range.from} → ${range.to}`;
   const posSummary = positions.map(p => `${p.from}→${p.to} ${fmtNum(p.booked_mw, 0)} MW`).join(", ") || "—";
 
   return (
     <div className="space-y-5">
-      {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KPI
-          label="Portfolio PnL"
+        <KPI label="Portfolio PnL"
           value={<span className={agg.totalPnL >= 0 ? "text-success" : "text-destructive"}>{fmtEur(agg.totalPnL, 0)}</span>}
-          sub={`EUR · ${rangeLabel}`}
-          accent={agg.totalPnL >= 0 ? "success" : "destructive"}
-        />
-        <KPI
-          label="Positions"
-          value={positions.length}
-          sub={posSummary}
-          accent="info"
-        />
-        <KPI
-          label="Calculated rows"
-          value={agg.calculated}
-          sub={agg.missing ? `${agg.missing} missing price rows` : "All months priced"}
-          accent={agg.missing ? "warning" : "success"}
-        />
-        <KPI
-          label="Formula"
-          value={<span className="text-base font-mono">spread × MW × hours</span>}
-          sub="spread = selected resale price − annual"
-          accent="muted"
-        />
+          sub={`EUR · ${rangeLabel}`} accent={agg.totalPnL >= 0 ? "success" : "destructive"} />
+        <KPI label="Positions" value={positions.length} sub={posSummary} accent="info" />
+        <KPI label="Calculated rows" value={agg.calculated}
+          sub={agg.missing ? `${agg.missing} unselected / missing price` : "All months priced"}
+          accent={agg.missing ? "warning" : "success"} />
+        <KPI label="Formula" value={<span className="text-base font-mono">spread × MW × h</span>}
+          sub="spread = selected resale − annual booked" accent="muted" />
       </div>
 
       {q.isLoading && <Panel title="Loading…"><div className="text-sm text-muted-foreground py-3">Fetching positions and prices…</div></Panel>}
@@ -149,16 +239,64 @@ function PnLBreakdown() {
         </Panel>
       )}
 
-      {/* Per-position cards */}
+      {positions.length > 0 && <StrategyMatrix positions={positions} getMode={getMode} />}
+
       {positions.map(pos => (
         <PositionBreakdownCard
           key={pos.position_id}
           pos={pos}
-          modeFor={(key: string) => getMode(pos.position_id, key)}
-          setModeFor={(key, mode) => setMode(pos.position_id, key, mode)}
+          getMode={(m) => getMode(pos, m)}
+          setMode={(m, mode) => setMode(pos, m, mode)}
+          predictions={predictions[posDefaultKey(pos)] ?? []}
+          todayKey={todayKey}
+          onApplyAll={() => applyRecForPos(pos)}
         />
       ))}
     </div>
+  );
+}
+
+function StrategyMatrix({ positions, getMode }: { positions: PosForCard[]; getMode: (pos: PosForCard, m: number) => SellAs }) {
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
+  const monthLabels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const badge = (m: SellAs) => {
+    if (!m) return <span className="text-muted-foreground/50 text-[10px]">—</span>;
+    const cls = m === "monthly" ? "bg-info/15 text-info border-info/30"
+      : m === "daily" ? "bg-success/15 text-success border-success/30"
+      : "bg-warning/15 text-warning border-warning/30";
+    return <Badge variant="outline" className={`${cls} text-[10px] font-mono px-1.5 py-0`}>{m[0].toUpperCase()}</Badge>;
+  };
+  return (
+    <Panel title="Selected Resale Method">
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr><th className="text-left py-1.5 pr-3">Border</th>{months.map(m => <th key={m} className="text-center px-1">{monthLabels[m-1]}</th>)}</tr>
+          </thead>
+          <tbody>
+            {positions.map(pos => {
+              const rowMonths = new Set(pos.rows.map(r => r.month));
+              return (
+                <tr key={pos.position_id} className="border-t border-border/60">
+                  <td className="py-1.5 pr-3 font-medium whitespace-nowrap">{pos.label}</td>
+                  {months.map(m => (
+                    <td key={m} className="text-center px-1 py-1">
+                      {rowMonths.has(m) ? badge(getMode(pos, m)) : <span className="text-muted-foreground/30">·</span>}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div className="mt-2 text-[10px] text-muted-foreground flex gap-3 flex-wrap">
+          <span><Badge variant="outline" className="bg-info/15 text-info border-info/30 px-1.5 py-0 font-mono text-[10px]">M</Badge> Monthly</span>
+          <span><Badge variant="outline" className="bg-success/15 text-success border-success/30 px-1.5 py-0 font-mono text-[10px]">D</Badge> Daily</span>
+          <span><Badge variant="outline" className="bg-warning/15 text-warning border-warning/30 px-1.5 py-0 font-mono text-[10px]">A</Badge> Annual</span>
+          <span>— Not selected</span>
+        </div>
+      </div>
+    </Panel>
   );
 }
 
@@ -175,22 +313,34 @@ interface PosForCard {
   }>;
 }
 
+type Rec = { month: number; monthly_fcst: number | null; daily_fcst: number | null; pnl_m: number | null; pnl_d: number | null; rec: "monthly" | "daily" | "none"; conf: "low" | "medium" | "high" | "none" };
+
 function PositionBreakdownCard({
-  pos, modeFor, setModeFor,
+  pos, getMode, setMode, predictions, todayKey, onApplyAll,
 }: {
   pos: PosForCard;
-  modeFor: (key: string) => SellAs;
-  setModeFor: (key: string, mode: SellAs) => void;
+  getMode: (m: number) => SellAs;
+  setMode: (m: number, mode: SellAs) => void;
+  predictions: Rec[];
+  todayKey: number;
+  onApplyAll: () => void;
 }) {
+  const recByMonth = useMemo(() => {
+    const m: Record<number, Rec> = {};
+    for (const p of predictions) m[p.month] = p;
+    return m;
+  }, [predictions]);
+
   const rowsResolved = pos.rows.map(r => {
-    const mode = modeFor(`${r.year}-${r.month}`);
+    const mode = getMode(r.month);
     let price: number | null = null;
     if (mode === "monthly") price = r.monthly_price;
     else if (mode === "daily") price = r.daily_price;
     else if (mode === "annual") price = pos.annual_current_price;
-    const spread = price == null ? null : price - pos.annual_booked_price;
+    const spread = (!mode || price == null) ? null : price - pos.annual_booked_price;
     const pnl = spread == null ? null : spread * pos.booked_mw * r.hours;
-    return { ...r, mode, price, spread, pnl };
+    const isFuture = (r.year * 100 + r.month) >= todayKey;
+    return { ...r, mode, price, spread, pnl, isFuture, rec: recByMonth[r.month] };
   });
   const subTotal = rowsResolved.reduce((s, r) => s + (r.pnl ?? 0), 0);
   const missing = rowsResolved.filter(r => r.pnl == null).length;
@@ -199,13 +349,16 @@ function PositionBreakdownCard({
     month: `${r.year}-${String(r.month).padStart(2, "0")}`,
     date_from: r.date_from, date_to: r.date_to, hours: r.hours,
     annual_booked: pos.annual_booked_price,
-    sell_as: r.mode,
+    sell_as: r.mode || "unselected",
     monthly: r.monthly_price ?? "",
     daily: r.daily_price ?? "",
     annual_current: pos.annual_current_price ?? "",
     spread: r.spread ?? "",
     pnl_eur: r.pnl ?? "",
+    arima_rec: r.rec?.rec ?? "",
   }));
+
+  const hasFutureRec = rowsResolved.some(r => r.isFuture && r.rec && r.rec.rec !== "none" && !r.mode);
 
   return (
     <Panel
@@ -222,6 +375,11 @@ function PositionBreakdownCard({
             <Badge variant="outline" className={`font-mono text-[10px] ${subTotal >= 0 ? "border-success/40 text-success" : "border-destructive/40 text-destructive"}`}>
               {fmtEur(subTotal, 0)}
             </Badge>
+            {hasFutureRec && (
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={onApplyAll}>
+                Apply ARIMA to empty months
+              </Button>
+            )}
             <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => downloadCSV(`pnl-${pos.from}-${pos.to}.csv`, csvRows as never)}>
               <Download className="w-3.5 h-3.5" />CSV
             </Button>
@@ -232,7 +390,7 @@ function PositionBreakdownCard({
       {missing > 0 && (
         <div className="flex items-start gap-2 text-[11px] text-warning bg-warning/10 border border-warning/30 rounded p-2 mb-2">
           <AlertTriangle className="w-3.5 h-3.5 mt-0.5" />
-          <span>{missing} of {rowsResolved.length} months are missing the selected price — PnL excluded for those rows.</span>
+          <span>{missing} of {rowsResolved.length} months have no PnL — strategy not selected or required price missing.</span>
         </div>
       )}
       <div className="overflow-x-auto">
@@ -240,7 +398,6 @@ function PositionBreakdownCard({
           <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="text-left py-1.5 pr-2">Month</th>
-              <th className="text-left">Date range</th>
               <th className="text-right">Hours</th>
               <th className="text-right">Annual</th>
               <th className="text-left pl-2">Sell as</th>
@@ -248,26 +405,23 @@ function PositionBreakdownCard({
               <th className="text-right">Daily</th>
               <th className="text-right">Spread</th>
               <th className="text-right">PnL EUR</th>
+              <th className="text-left pl-3">ARIMA</th>
             </tr>
           </thead>
           <tbody>
             {rowsResolved.map(r => {
-              const spreadCls = r.spread == null
-                ? "text-muted-foreground"
-                : r.spread >= 0 ? "text-success" : "text-destructive";
-              const pnlCls = r.pnl == null
-                ? "text-muted-foreground"
-                : r.pnl >= 0 ? "text-success" : "text-destructive";
+              const spreadCls = r.spread == null ? "text-muted-foreground" : r.spread >= 0 ? "text-success" : "text-destructive";
+              const pnlCls = r.pnl == null ? "text-muted-foreground" : r.pnl >= 0 ? "text-success" : "text-destructive";
               return (
                 <tr key={`${r.year}-${r.month}`} className="border-t border-border/60">
                   <td className="py-1.5 pr-2 font-medium">{r.monthLabel} {r.year}</td>
-                  <td className="text-xs text-muted-foreground num">{r.date_from} → {r.date_to}</td>
                   <td className="text-right num">{r.hours}</td>
                   <td className="text-right num">{fmtPrice(pos.annual_booked_price)}</td>
                   <td className="pl-2">
-                    <Select value={r.mode} onValueChange={v => setModeFor(`${r.year}-${r.month}`, v as SellAs)}>
-                      <SelectTrigger className="h-7 w-[110px] text-xs"><SelectValue /></SelectTrigger>
+                    <Select value={r.mode || "unset"} onValueChange={v => setMode(r.month, v === "unset" ? "" : (v as SellAs))}>
+                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue placeholder="Select…" /></SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="unset">Select strategy</SelectItem>
                         <SelectItem value="monthly">Monthly</SelectItem>
                         <SelectItem value="daily">Daily</SelectItem>
                         <SelectItem value="annual">Annual</SelectItem>
@@ -286,19 +440,45 @@ function PositionBreakdownCard({
                   <td className={`text-right num font-semibold ${pnlCls}`}>
                     {r.pnl == null ? "—" : fmtEur(r.pnl, 0)}
                   </td>
+                  <td className="pl-3 text-[10px]">
+                    {r.isFuture && r.rec && r.rec.rec !== "none" ? (
+                      <PredictorCell r={r.rec} onApply={() => setMode(r.month, r.rec!.rec as SellAs)} active={r.mode === r.rec.rec} />
+                    ) : r.isFuture ? <span className="text-muted-foreground/60">Insufficient data</span> : <span className="text-muted-foreground/40">—</span>}
+                  </td>
                 </tr>
               );
             })}
           </tbody>
           <tfoot>
             <tr className="border-t border-border">
-              <td colSpan={8} className="py-2 text-right text-xs uppercase tracking-wider text-muted-foreground">Subtotal</td>
+              <td colSpan={7} className="py-2 text-right text-xs uppercase tracking-wider text-muted-foreground">Subtotal</td>
               <td className={`text-right num font-semibold ${subTotal >= 0 ? "text-success" : "text-destructive"}`}>{fmtEur(subTotal, 0)}</td>
+              <td></td>
             </tr>
           </tfoot>
         </table>
       </div>
     </Panel>
+  );
+}
+
+function PredictorCell({ r, onApply, active }: { r: Rec; onApply: () => void; active: boolean }) {
+  const confCls = r.conf === "high" ? "border-success/40 text-success"
+    : r.conf === "medium" ? "border-info/40 text-info"
+    : "border-warning/40 text-warning";
+  const recCls = r.rec === "monthly" ? "bg-info/15 text-info border-info/30" : "bg-success/15 text-success border-success/30";
+  const delta = (r.pnl_m != null && r.pnl_d != null) ? Math.abs(r.pnl_m - r.pnl_d) : null;
+  return (
+    <div className="flex items-center gap-1.5">
+      <Badge variant="outline" className={`${recCls} font-mono text-[10px] px-1.5 py-0`}>
+        {r.rec.toUpperCase()}
+      </Badge>
+      <Badge variant="outline" className={`${confCls} font-mono text-[9px] px-1 py-0`}>{r.conf}</Badge>
+      {delta != null && <span className="text-muted-foreground/70">Δ {fmtEur(delta, 0)}</span>}
+      {!active && (
+        <button onClick={onApply} className="text-[10px] text-primary hover:underline">apply</button>
+      )}
+    </div>
   );
 }
 
@@ -338,48 +518,100 @@ function Comparison() {
   );
 }
 
-function RecBadge({ rec }: { rec: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    resell_monthly: { label: "RESELL MONTHLY", cls: "bg-success/15 text-success border-success/30" },
-    resell_daily:   { label: "RESELL DAILY",   cls: "bg-success/15 text-success border-success/30" },
-    keep:           { label: "KEEP",           cls: "bg-info/15 text-info border-info/30" },
-    manual:         { label: "MANUAL REVIEW",  cls: "bg-warning/15 text-warning border-warning/30" },
-  };
-  const v = map[rec] ?? map.manual;
-  return <Badge variant="outline" className={`${v.cls} text-[10px] font-mono`}>{v.label}</Badge>;
-}
 
 function Predictor() {
-  const fn = useServerFn(getCBCComparison);
-  const q = useQuery({ queryKey: ["cbc_cmp"], queryFn: () => fn({ data: {} }) });
-  const rows = q.data?.rows ?? [];
+  const fn = useServerFn(getMonthlyResaleBreakdown);
+  const { range } = useDateRange();
+  const q = useQuery({
+    queryKey: ["cbc_breakdown", range.from, range.to],
+    queryFn: () => fn({ data: { from: range.from, to: range.to } }),
+  });
+  const positions = q.data?.positions ?? [];
+  const todayKey = (() => { const d = new Date(); return d.getFullYear() * 100 + (d.getMonth() + 1); })();
+  const monthLabels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
   return (
-    <Panel title="Predictor — daily vs monthly bias">
-      <p className="text-xs text-muted-foreground mb-3">
-        Heuristic: compares current monthly and daily prices vs the annual reference. The product
-        with the larger positive spread vs annual is the better resell candidate today.
-      </p>
-      <table className="w-full text-sm">
-        <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          <tr><th className="text-left py-1.5">Border</th><th className="text-right">Δ Monthly−Annual</th><th className="text-right">Δ Daily−Annual</th><th>Lean</th></tr>
-        </thead>
-        <tbody>
-          {rows.map(r => {
-            const dm = (r.monthly ?? 0) - (r.annual ?? 0);
-            const dd = (r.daily ?? 0) - (r.annual ?? 0);
-            const lean = dd > dm && dd > 0 ? "daily" : dm > 0 ? "monthly" : "keep";
-            return (
-              <tr key={`${r.from}_${r.to}`} className="border-t border-border/60">
-                <td className="py-1.5">{r.from} → {r.to}</td>
-                <td className={`text-right num ${dm > 0 ? "text-success" : "text-muted-foreground"}`}>{fmtPrice(dm)}</td>
-                <td className={`text-right num ${dd > 0 ? "text-success" : "text-muted-foreground"}`}>{fmtPrice(dd)}</td>
-                <td><RecBadge rec={lean === "daily" ? "resell_daily" : lean === "monthly" ? "resell_monthly" : "keep"} /></td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </Panel>
+    <div className="space-y-4">
+      <Panel title="Resale Strategy Predictor (ARIMA)">
+        <p className="text-xs text-muted-foreground">
+          AR(1)+drift forecast trained on historical monthly &amp; daily resale prices per border.
+          Recommends the strategy with the higher expected PnL = (forecast − annual booked) × MW × hours.
+          Confidence reflects historical point count (≥12 high, ≥6 medium, &lt;6 low).
+        </p>
+      </Panel>
+      {positions.map(pos => {
+        const histM: number[] = []; const histD: number[] = [];
+        for (const r of pos.rows) {
+          const k = r.year * 100 + r.month;
+          if (k < todayKey) {
+            if (r.monthly_price != null) histM.push(r.monthly_price);
+            if (r.daily_price != null) histD.push(r.daily_price);
+          }
+        }
+        let step = 1;
+        const future = pos.rows.filter(r => (r.year * 100 + r.month) >= todayKey).map(r => {
+          const fm = arimaLikeForecast(histM, step);
+          const fd = arimaLikeForecast(histD, step);
+          step++;
+          const pnl_m = fm.forecast == null ? null : (fm.forecast - pos.annual_booked_price) * pos.booked_mw * r.hours;
+          const pnl_d = fd.forecast == null ? null : (fd.forecast - pos.annual_booked_price) * pos.booked_mw * r.hours;
+          let rec: "monthly" | "daily" | "none" = "none";
+          if (pnl_m != null && pnl_d != null) rec = pnl_m >= pnl_d ? "monthly" : "daily";
+          else if (pnl_m != null) rec = "monthly";
+          else if (pnl_d != null) rec = "daily";
+          const conf = (fm.confidence === "high" || fd.confidence === "high") ? "high" :
+            (fm.confidence === "medium" || fd.confidence === "medium") ? "medium" :
+            (fm.confidence === "none" && fd.confidence === "none") ? "none" : "low";
+          return { r, fm, fd, pnl_m, pnl_d, rec, conf };
+        });
+        return (
+          <Panel key={pos.position_id} title={`${pos.label} · forecast`}>
+            <table className="w-full text-sm">
+              <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="text-left py-1.5">Month</th>
+                  <th className="text-right">Fcst Monthly</th>
+                  <th className="text-right">Fcst Daily</th>
+                  <th className="text-right">Annual booked</th>
+                  <th className="text-right">Exp PnL Monthly</th>
+                  <th className="text-right">Exp PnL Daily</th>
+                  <th>Recommendation</th>
+                  <th>Confidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {future.map(({ r, fm, fd, pnl_m, pnl_d, rec, conf }) => {
+                  const recCls = rec === "none" ? "bg-muted/40 text-muted-foreground border-muted"
+                    : "bg-success/15 text-success border-success/30";
+                  const confCls = conf === "high" ? "border-success/40 text-success"
+                    : conf === "medium" ? "border-info/40 text-info"
+                    : conf === "none" ? "border-muted text-muted-foreground"
+                    : "border-warning/40 text-warning";
+                  return (
+                    <tr key={`${r.year}-${r.month}`} className="border-t border-border/60">
+                      <td className="py-1.5">{monthLabels[r.month-1]} {r.year}</td>
+                      <td className="text-right num">{fm.forecast == null ? "—" : fmtNum(fm.forecast, 4)}</td>
+                      <td className="text-right num">{fd.forecast == null ? "—" : fmtNum(fd.forecast, 4)}</td>
+                      <td className="text-right num">{fmtPrice(pos.annual_booked_price)}</td>
+                      <td className={`text-right num ${(pnl_m ?? 0) >= 0 ? "text-success" : "text-destructive"}`}>{pnl_m == null ? "—" : fmtEur(pnl_m, 0)}</td>
+                      <td className={`text-right num ${(pnl_d ?? 0) >= 0 ? "text-success" : "text-destructive"}`}>{pnl_d == null ? "—" : fmtEur(pnl_d, 0)}</td>
+                      <td><Badge variant="outline" className={`${recCls} font-mono text-[10px]`}>{rec === "none" ? "INSUFFICIENT DATA" : rec.toUpperCase()}</Badge></td>
+                      <td><Badge variant="outline" className={`${confCls} font-mono text-[10px]`}>{conf}</Badge></td>
+                    </tr>
+                  );
+                })}
+                {future.length === 0 && (
+                  <tr><td colSpan={8} className="text-sm text-muted-foreground py-3">No future months in the selected date range.</td></tr>
+                )}
+              </tbody>
+            </table>
+            {histM.length < 6 && histD.length < 6 && (
+              <p className="text-[11px] text-warning mt-2">Fallback forecast used due to limited historical data ({histM.length}M / {histD.length}D points).</p>
+            )}
+          </Panel>
+        );
+      })}
+    </div>
   );
 }
 
