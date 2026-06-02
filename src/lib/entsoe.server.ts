@@ -202,7 +202,7 @@ export async function fetchExplicitAllocation(
       out_Domain: ZONES[from].eic,
       periodStart: ymdh(start),
       periodEnd: ymdh(end),
-    } as unknown as Record<string, string>);
+    });
     const series = parseTimeSeriesHourly(xml).map(p => p.value).filter(Number.isFinite);
     const price = series.length ? series.reduce((a, b) => a + b, 0) / series.length : null;
     const row: CapacityRow = {
