@@ -50,7 +50,7 @@ function statusFor(util: number | null, dataMissing: boolean) {
 }
 
 function utilColor(util: number | null) {
-  if (util == null) return "hsl(var(--muted-foreground) / 0.2)";
+  if (util == null) return "color-mix(in oklab, var(--muted-foreground) 0.2, transparent)";
   if (util >= 90) return "oklch(0.62 0.22 25)"; // destructive
   if (util >= 80) return "oklch(0.75 0.16 70)"; // warning
   if (util >= 50) return "oklch(0.72 0.13 200)"; // info
@@ -234,11 +234,11 @@ function FlowsPage() {
                       <stop offset="100%" stopColor="oklch(0.72 0.13 200)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 0.4, transparent)" />
                   <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 10 }} unit=" MW" width={70} />
-                  <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" />
-                  <RTooltip contentStyle={{ background: "hsl(var(--surface))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                  <ReferenceLine y={0} stroke="var(--muted-foreground)" />
+                  <RTooltip contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", fontSize: 12 }} />
                   <Area type="monotone" dataKey="net" stroke="oklch(0.72 0.13 200)" fill="url(#netPos)" name="Net (MW)" />
                 </AreaChart>
               </ResponsiveContainer>
@@ -274,11 +274,11 @@ function FlowsPage() {
               {selChartData.length === 0 ? <EmptyState /> : (
                 <ResponsiveContainer width="100%" height={260}>
                   <LineChart data={selChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 0.4, transparent)" />
                     <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis tick={{ fontSize: 10 }} unit=" MW" width={70} />
-                    <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" />
-                    <RTooltip contentStyle={{ background: "hsl(var(--surface))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                    <ReferenceLine y={0} stroke="var(--muted-foreground)" />
+                    <RTooltip contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", fontSize: 12 }} />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     {chartMode === "net" ? (
                       <Line type="monotone" dataKey="Net" stroke="#60a5fa" strokeWidth={2} dot={false} />
@@ -304,10 +304,10 @@ function FlowsPage() {
             {selDuration.length === 0 ? <EmptyState /> : (
               <ResponsiveContainer width="100%" height={260}>
                 <AreaChart data={selDuration}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 0.4, transparent)" />
                   <XAxis dataKey="pct" tick={{ fontSize: 10 }} unit="%" />
                   <YAxis tick={{ fontSize: 10 }} unit=" MW" width={70} />
-                  <RTooltip contentStyle={{ background: "hsl(var(--surface))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                  <RTooltip contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", fontSize: 12 }} />
                   <Area type="stepAfter" dataKey="mw" stroke="#a78bfa" fill="oklch(0.65 0.18 290 / 0.25)" />
                 </AreaChart>
               </ResponsiveContainer>
@@ -323,12 +323,12 @@ function FlowsPage() {
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={summary.map(s => ({ name: s.neighbour, util: s.avgUtil ?? 0, max: s.maxUtil ?? 0 }))}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in oklab, var(--border) 0.4, transparent)" />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 10 }} unit="%" />
                   <ReferenceLine y={80} stroke="oklch(0.75 0.16 70)" strokeDasharray="3 3" />
                   <ReferenceLine y={90} stroke="oklch(0.62 0.22 25)" strokeDasharray="3 3" />
-                  <RTooltip contentStyle={{ background: "hsl(var(--surface))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                  <RTooltip contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", fontSize: 12 }} />
                   <Bar dataKey="util" name="Avg %" fill="oklch(0.72 0.13 200)" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="max" name="Max %" fill="oklch(0.65 0.18 290)" radius={[4, 4, 0, 0]} />
                 </BarChart>
@@ -488,17 +488,17 @@ function NetworkDiagram({
           );
         })}
         {/* RS center */}
-        <circle cx={cx} cy={cy} r={32} fill="oklch(0.25 0.05 260)" stroke="hsl(var(--primary))" strokeWidth={2} />
-        <text x={cx} y={cy + 5} textAnchor="middle" fill="hsl(var(--foreground))" fontSize="14" fontWeight={600}>RS</text>
+        <circle cx={cx} cy={cy} r={32} fill="oklch(0.25 0.05 260)" stroke="var(--primary)" strokeWidth={2} />
+        <text x={cx} y={cy + 5} textAnchor="middle" fill="var(--foreground)" fontSize="14" fontWeight={600}>RS</text>
         {/* neighbours */}
         {items.map(it => (
           <g key={it.neighbour} className="cursor-pointer" onClick={() => onSelect(it.neighbour)}>
             <circle cx={it.x} cy={it.y} r={26}
-              fill={selected === it.neighbour ? "oklch(0.3 0.08 260)" : "hsl(var(--surface-2))"}
-              stroke={selected === it.neighbour ? "hsl(var(--primary))" : "hsl(var(--border))"}
+              fill={selected === it.neighbour ? "oklch(0.3 0.08 260)" : "var(--surface-2)"}
+              stroke={selected === it.neighbour ? "var(--primary)" : "var(--border)"}
               strokeWidth={selected === it.neighbour ? 2 : 1} />
-            <text x={it.x} y={it.y - 2} textAnchor="middle" fill="hsl(var(--foreground))" fontSize="12" fontWeight={600}>{it.neighbour}</text>
-            <text x={it.x} y={it.y + 12} textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize="9">
+            <text x={it.x} y={it.y - 2} textAnchor="middle" fill="var(--foreground)" fontSize="12" fontWeight={600}>{it.neighbour}</text>
+            <text x={it.x} y={it.y + 12} textAnchor="middle" fill="var(--muted-foreground)" fontSize="9">
               {it.avgNet == null ? "—" : `${it.avgNet >= 0 ? "+" : ""}${Math.round(it.avgNet)} MW`}
             </text>
             {it.avgUtil != null && (
@@ -531,7 +531,7 @@ function Heatmap({ summary }: { summary: Array<{ neighbour: ZoneCode; utilHourly
                 <div key={`${s.neighbour}-${i}`}
                   className="w-[14px] h-[14px] rounded-[2px]"
                   title={u == null ? `${s.neighbour} h${i}: no capacity` : `${s.neighbour} h${i}: ${u.toFixed(0)}%`}
-                  style={{ background: u == null ? "hsl(var(--muted) / 0.2)" : utilColor(u) }}
+                  style={{ background: u == null ? "color-mix(in oklab, var(--muted) 0.2, transparent)" : utilColor(u) }}
                 />
               ))}
             </Fragment>
