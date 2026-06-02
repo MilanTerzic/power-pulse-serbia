@@ -442,10 +442,12 @@ function Legend2() {
 }
 
 // Network diagram: RS center, neighbours on a ring
+type DiagItem = { neighbour: ZoneCode; label: string; avgNet: number | null; avgImp: number; avgExp: number; avgUtil: number | null };
+
 function NetworkDiagram({
   summary, onSelect, selected,
 }: {
-  summary: ReturnType<typeof Object> & Array<{ neighbour: ZoneCode; label: string; avgNet: number | null; avgImp: number; avgExp: number; avgUtil: number | null }>;
+  summary: DiagItem[];
   onSelect: (n: ZoneCode) => void;
   selected: ZoneCode;
 }) {
