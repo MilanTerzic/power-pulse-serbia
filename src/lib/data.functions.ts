@@ -528,3 +528,249 @@ export const getDanubeDischarge = createServerFn({ method: "GET" })
     return { from, to, stations: res };
   });
 
+
+// ---- Multi-product SEEPEX forecast (DA / Week / Month) ----------------------
+import { fetchEexFutures, type EexProduct } from "./eex.server";
+import {
+  toDaily, toWeekly, toMonthly, arForecast, buildForecastPoints, blend, forecastDA,
+  filterByLoadType, type Product, type LoadType, type Driver,
+} from "./forecast-multi";
+
+interface ForecastV2Input {
+  product: Product;
+  horizon: number;        // DA: hours; week: weeks; month: months
+  history_from?: string;  // ISO date; default 2024-01-01
+  history_to?: string;    // optional cutoff (for backtest); default today
+  load_type?: LoadType;   // default baseload
+  use_fundamentals?: boolean;
+}
+
+async function fetchSeepexHistory(fromISO: string, toISO: string): Promise<Array<{ ts: string; price: number }>> {
+  const from = new Date(fromISO + "T00:00:00Z").getTime();
+  const to = new Date(toISO + "T00:00:00Z").getTime();
+  const days: string[] = [];
+  for (let t = from; t <= to; t += 86400_000) days.push(new Date(t).toISOString().slice(0, 10));
+  // Limit huge ranges (>720 days) to last 720 to keep latency reasonable.
+  const useDays = days.length > 720 ? days.slice(-720) : days;
+  const BATCH = 30;
+  const out: Array<{ ts: string; price: number }> = [];
+  for (let i = 0; i < useDays.length; i += BATCH) {
+    const chunk = useDays.slice(i, i + BATCH);
+    const res = await Promise.all(chunk.map(d => fetchDayAheadPrices("RS", d)));
+    for (const r of res) out.push(...r.data.points);
+  }
+  return out.sort((a, b) => a.ts < b.ts ? -1 : 1);
+}
+
+export const runForecastV2 = createServerFn({ method: "POST" })
+  .inputValidator((data: ForecastV2Input) => data)
+  .handler(async ({ data }) => {
+    const product = data.product;
+    const historyFrom = data.history_from && /^\d{4}-\d{2}-\d{2}$/.test(data.history_from)
+      ? data.history_from : "2024-01-01";
+    const historyTo = data.history_to && /^\d{4}-\d{2}-\d{2}$/.test(data.history_to)
+      ? data.history_to : todayISO();
+    const loadType: LoadType = data.load_type ?? "baseload";
+    const useFund = data.use_fundamentals ?? true;
+    const horizon = Math.max(1, Math.min(product === "da" ? 14 * 24 : product === "week" ? 8 : 6, data.horizon));
+
+    const warnings: string[] = [];
+
+    // 1. SEEPEX history
+    const history = await fetchSeepexHistory(historyFrom, historyTo);
+    if (!history.length) {
+      return {
+        product, loadType, horizon, historyFrom, historyTo,
+        error: "SEEPEX history unavailable for the selected range.",
+        warnings, history: [], forecast: [], drivers: [], diagnostics: null,
+        latest_actual: null, eex: { source: "unavailable", reason: "skipped", prices: [], fetched_at: new Date().toISOString() },
+      };
+    }
+    const latest = history[history.length - 1];
+
+    // 2. Fundamentals (load, outages, danube, weather) — best-effort.
+    const drivers: Driver[] = [];
+    let fundamentalAdj = 0;
+
+    if (useFund) {
+      try {
+        const balance = await fetchLoadGen("RS", historyTo).catch(() => null);
+        if (balance?.data?.length) {
+          const last = balance.data.slice(-24);
+          const avgLoad = last.reduce((s, p) => s + (p.load ?? 0), 0) / Math.max(1, last.length);
+          const prevDay = balance.data.slice(-48, -24);
+          const prevLoad = prevDay.reduce((s, p) => s + (p.load ?? 0), 0) / Math.max(1, prevDay.length);
+          const delta = prevLoad ? (avgLoad - prevLoad) / prevLoad : 0;
+          drivers.push({
+            key: "load", label: "Load trend (RS, last 24h vs prev)",
+            value: `${avgLoad.toFixed(0)} MW`,
+            trend: delta > 0.02 ? "up" : delta < -0.02 ? "down" : "flat",
+            impact: delta > 0.02 ? "bullish" : delta < -0.02 ? "bearish" : "neutral",
+            explain: `${(delta * 100).toFixed(1)}% vs previous day`,
+          });
+          fundamentalAdj += delta * 8; // €/MWh per 1.0 load change
+        } else {
+          drivers.push({ key: "load", label: "Load", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
+        }
+      } catch { /* ignore */ }
+
+      try {
+        const out = await fetchOutages("RS", historyTo).catch(() => null);
+        if (out?.data?.length) {
+          const total = out.data.reduce((s, o) => s + (o.unavailable_mw ?? 0), 0);
+          drivers.push({
+            key: "outages", label: "Generation outages (RS)",
+            value: `${total.toFixed(0)} MW unavailable`,
+            trend: total > 500 ? "up" : "flat",
+            impact: total > 500 ? "bullish" : "neutral",
+            explain: `${out.data.length} active outage records`,
+          });
+          fundamentalAdj += Math.min(8, total / 250);
+        } else {
+          drivers.push({ key: "outages", label: "Outages", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
+        }
+      } catch { /* ignore */ }
+
+      try {
+        const danube = await fetchRiverDischarge(
+          DANUBE_STATION_COORDS["Belgrade"].lat, DANUBE_STATION_COORDS["Belgrade"].lon,
+          new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10), historyTo,
+        ).catch(() => null);
+        const series = danube?.data?.daily?.river_discharge ?? [];
+        if (series.length >= 2) {
+          const last = series[series.length - 1];
+          const avg = series.reduce((a: number, b: number) => a + b, 0) / series.length;
+          const dev = (last - avg) / avg;
+          drivers.push({
+            key: "danube", label: "Danube discharge (Belgrade, 7d)",
+            value: `${last.toFixed(0)} m³/s`,
+            trend: dev > 0.05 ? "up" : dev < -0.05 ? "down" : "flat",
+            impact: dev > 0.05 ? "bearish" : dev < -0.05 ? "bullish" : "neutral",
+            explain: `${(dev * 100).toFixed(1)}% vs 7d avg (more water → more hydro → softer prices)`,
+          });
+          fundamentalAdj += -dev * 5;
+        } else {
+          drivers.push({ key: "danube", label: "Danube", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
+        }
+      } catch { /* ignore */ }
+
+      try {
+        const wx = await fetchWeather("RS", historyTo).catch(() => null);
+        const t = wx?.data?.temp_max;
+        if (t != null) {
+          const baseTemp = 18;
+          const dd = t < baseTemp ? baseTemp - t : t - 24; // HDD or CDD
+          drivers.push({
+            key: "weather", label: "Belgrade temp (today)",
+            value: `${t.toFixed(1)} °C`,
+            trend: t > 26 ? "up" : t < 5 ? "up" : "flat",
+            impact: dd > 5 ? "bullish" : "neutral",
+            explain: dd > 5 ? `Strong ${t < baseTemp ? "heating" : "cooling"} demand` : "Mild conditions",
+          });
+          fundamentalAdj += Math.max(0, dd - 5) * 0.5;
+        } else {
+          drivers.push({ key: "weather", label: "Weather", value: "—", trend: "flat", impact: "neutral", explain: "no data" });
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Calendar driver (always available)
+    const today = new Date(historyTo);
+    const isWeekend = today.getUTCDay() === 0 || today.getUTCDay() === 6;
+    drivers.push({
+      key: "calendar", label: "Calendar",
+      value: isWeekend ? "Weekend" : "Weekday",
+      trend: "flat",
+      impact: isWeekend ? "bearish" : "neutral",
+      explain: isWeekend ? "Weekend demand typically lower" : `Month ${today.getUTCMonth() + 1}, weekday`,
+    });
+
+    // 3. EEX futures anchor
+    const eex = await fetchEexFutures().catch(() => ({
+      source: "unavailable" as const, reason: "fetch failed", prices: [], fetched_at: new Date().toISOString(),
+    }));
+    const wantedEex: EexProduct | null = product === "week" ? "week" : product === "month" ? "month" : null;
+    const eexAnchor = wantedEex ? (eex.prices.find(p => p.product === wantedEex)?.price_eur_mwh ?? null) : null;
+    const eexFresh = eex.source !== "unavailable";
+    if (wantedEex && eexAnchor == null) warnings.push("EEX futures unavailable — falling back to statistical-only forecast.");
+
+    // 4. Build forecast per product
+    const filteredHist = filterByLoadType(history, loadType);
+    let statisticalForecast: number[] = [];
+    let forecastPts: Array<{ ts: string; forecast: number; lo80: number; hi80: number; blended?: number }> = [];
+    let model = "sarima_lite";
+    let mae: number | undefined;
+    let mape: number | undefined;
+    let statConf: "low" | "medium" | "high" = "low";
+
+    if (product === "da") {
+      const r = forecastDA(filteredHist, horizon);
+      statisticalForecast = r.forecast.map(p => p.forecast);
+      forecastPts = r.forecast;
+      model = r.model;
+      mae = r.mae; mape = r.mape;
+      statConf = filteredHist.length > 24 * 90 ? "high" : filteredHist.length > 24 * 30 ? "medium" : "low";
+      warnings.push(...r.warnings);
+    } else {
+      const daily = toDaily(history, loadType);
+      const series = product === "week" ? toWeekly(daily) : toMonthly(daily);
+      const values = series.map(s => s.price);
+      if (values.length < 4) {
+        warnings.push(`Only ${values.length} ${product}ly observations — using last value as flat forecast.`);
+        const last = values[values.length - 1] ?? 0;
+        statisticalForecast = Array.from({ length: horizon }, () => last);
+        forecastPts = buildForecastPoints(series[series.length - 1]?.ts ?? new Date().toISOString(),
+          product === "week" ? 7 : 30, statisticalForecast, 5);
+        model = "rolling_mean";
+      } else {
+        const { fc, resid_std } = arForecast(values, horizon);
+        statisticalForecast = fc;
+        forecastPts = buildForecastPoints(series[series.length - 1].ts, product === "week" ? 7 : 30, fc, resid_std);
+        model = "ar1_drift";
+        statConf = values.length >= 24 ? "high" : values.length >= 12 ? "medium" : "low";
+        // Naive backtest: hold-out last 4 obs
+        if (values.length >= 8) {
+          const train = values.slice(0, -4);
+          const test = values.slice(-4);
+          const bt = arForecast(train, 4);
+          const errs = test.map((t, i) => Math.abs(t - bt.fc[i]));
+          mae = errs.reduce((a, b) => a + b, 0) / errs.length;
+          const pcts = test.map((t, i) => Math.abs(t) > 0.1 ? Math.abs((t - bt.fc[i]) / t) : 0);
+          const valid = pcts.filter((_, i) => Math.abs(test[i]) > 0.1).length;
+          mape = valid ? (pcts.reduce((a, b) => a + b, 0) / valid) * 100 : undefined;
+        }
+      }
+    }
+
+    // 5. Blend with EEX + fundamentals
+    const { blended, weights } = blend({
+      statistical: statisticalForecast,
+      eexAnchor,
+      fundamentalAdj,
+      eexFresh: eexFresh && eexAnchor != null,
+      statConfidence: statConf,
+    });
+    forecastPts = forecastPts.map((p, i) => ({ ...p, blended: blended[i] }));
+
+    return {
+      product, loadType, horizon, historyFrom, historyTo,
+      history: history.slice(-Math.min(history.length, product === "da" ? 24 * 30 : 365 * 2)),
+      forecast: forecastPts,
+      latest_actual: { ts: latest.ts, price: latest.price },
+      eex,
+      eex_anchor: eexAnchor,
+      drivers,
+      fundamental_adj: fundamentalAdj,
+      weights,
+      diagnostics: {
+        model,
+        training_points: filteredHist.length,
+        history_from: historyFrom,
+        history_to: historyTo,
+        mae, mape,
+        stat_confidence: statConf,
+        fallback_used: model === "rolling_mean" || model === "seasonal_naive",
+      },
+      warnings,
+    };
+  });
