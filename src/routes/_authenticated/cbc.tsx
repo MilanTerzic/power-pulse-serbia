@@ -182,12 +182,11 @@ function PositionBreakdownCard({
   getMode: (m: SellAs) => SellAs;
   modeFor: (key: string) => SellAs;
   setModeFor: (key: string, mode: SellAs) => void;
-  resolve: (pos: never, row: never, mode: SellAs) => { mode: SellAs; price: number | null; spread: number | null; pnl: number | null };
+  resolve: (pos: unknown, row: unknown, mode: SellAs) => { mode: SellAs; price: number | null; spread: number | null; pnl: number | null };
 }) {
   const rowsResolved = pos.rows.map(r => {
     const mode = modeFor(`${r.year}-${r.month}`);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const x = resolve(pos as any, r as any, mode);
+    const x = resolve(pos, r, mode);
     return { ...r, ...x };
   });
   const subTotal = rowsResolved.reduce((s, r) => s + (r.pnl ?? 0), 0);
