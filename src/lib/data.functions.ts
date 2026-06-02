@@ -545,18 +545,18 @@ interface ForecastV2Input {
   use_fundamentals?: boolean;
 }
 
-async function fetchSeepexHistory(fromISO: string, toISO: string): Promise<Array<{ ts: string; price: number }>> {
+async function fetchSeepexHistory(fromISO: string, toISO: string, maxDays = 180): Promise<Array<{ ts: string; price: number }>> {
   const from = new Date(fromISO + "T00:00:00Z").getTime();
   const to = new Date(toISO + "T00:00:00Z").getTime();
   const days: string[] = [];
   for (let t = from; t <= to; t += 86400_000) days.push(new Date(t).toISOString().slice(0, 10));
-  // Limit huge ranges (>720 days) to last 720 to keep latency reasonable.
-  const useDays = days.length > 720 ? days.slice(-720) : days;
-  const BATCH = 30;
+  // Cap range to keep server function under the worker timeout.
+  const useDays = days.length > maxDays ? days.slice(-maxDays) : days;
+  const BATCH = 60;
   const out: Array<{ ts: string; price: number }> = [];
   for (let i = 0; i < useDays.length; i += BATCH) {
     const chunk = useDays.slice(i, i + BATCH);
-    const res = await Promise.all(chunk.map(d => fetchDayAheadPrices("RS", d)));
+    const res = await Promise.all(chunk.map(d => fetchDayAheadPrices("RS", d).catch(() => ({ data: { points: [] as Array<{ ts: string; price: number }> } }))));
     for (const r of res) out.push(...r.data.points);
   }
   return out.sort((a, b) => a.ts < b.ts ? -1 : 1);
