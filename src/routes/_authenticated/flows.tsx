@@ -6,8 +6,7 @@ import { TopBar } from "@/components/top-bar";
 import { Panel } from "@/components/panel";
 import { DataBadge } from "@/components/data-badge";
 import { fmtMW, fmtNum, downloadCSV } from "@/lib/format";
-import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useDateRange } from "@/lib/date-range";
 import { Download } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/flows")({
@@ -17,8 +16,8 @@ export const Route = createFileRoute("/_authenticated/flows")({
 
 function FlowsPage() {
   const fn = useServerFn(getFlows);
-  const [demo, setDemo] = useState(false);
-  const q = useQuery({ queryKey: ["flows", demo], queryFn: () => fn({ data: { demo } }) });
+  const { range } = useDateRange();
+  const q = useQuery({ queryKey: ["flows", range.from, range.to], queryFn: () => fn({ data: { from: range.from, to: range.to } }) });
 
   const rows = (q.data?.rows ?? []).map(r => {
     const mw = r.data.points.map(p => p.mw);
@@ -30,12 +29,9 @@ function FlowsPage() {
 
   return (
     <>
-      <TopBar title="Physical Flows (A11)" subtitle="Hourly cross-border flows" demo={demo} onRefresh={() => q.refetch()} />
+      <TopBar title="Physical Flows (A11)" subtitle="Hourly cross-border flows" onRefresh={() => q.refetch()} />
       <div className="p-6 space-y-5">
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant={demo ? "outline" : "default"} onClick={() => setDemo(false)}>Live</Button>
-          <Button size="sm" variant={demo ? "default" : "outline"} onClick={() => setDemo(true)}>Demo</Button>
-        </div>
+
         <Panel title="Flow summary" actions={<Button size="sm" variant="ghost" className="gap-1.5" onClick={() => downloadCSV("flows.csv", rows as never)}><Download className="w-3.5 h-3.5" />CSV</Button>}>
           <table className="w-full text-sm">
             <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
