@@ -54,22 +54,27 @@ async function fetchWeatherVisualCrossing(lat: number, lon: number, dayISO: stri
   }));
 }
 
-export async function fetchWeather(zone: ZoneCode, dayISO: string): Promise<{ data: WeatherPoint[]; source: "live" | "visual-crossing" | "demo"; reason?: string }> {
+export async function fetchWeather(zone: ZoneCode, dayISO: string): Promise<{ data: WeatherPoint[]; source: "live" | "visual-crossing" | "cache" | "demo"; reason?: string }> {
   const cap = ZONES[zone].capital;
   if (!cap) return { data: [], source: "demo", reason: "no_capital" };
+  const cacheKey = `weather:${zone}:${dayISO}`;
+  const cached = await cacheGet<{ data: WeatherPoint[]; source: "live" | "visual-crossing" }>(cacheKey);
+  if (cached) return { data: cached.data, source: "cache", reason: `was_${cached.source}` };
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${cap.lat}&longitude=${cap.lon}&hourly=temperature_2m,wind_speed_10m&start_date=${dayISO}&end_date=${dayISO}&timezone=UTC`;
     const j = await fetchJson(url) as { hourly?: { time: string[]; temperature_2m: number[]; wind_speed_10m: number[] } };
     const h = j.hourly;
     if (!h || !h.time?.length) throw new Error("empty");
-    return {
-      data: h.time.map((t, i) => ({ ts: new Date(t + "Z").toISOString(), temp_c: h.temperature_2m[i], wind_ms: h.wind_speed_10m[i] / 3.6 })),
-      source: "live",
-    };
+    const data: WeatherPoint[] = h.time.map((t, i) => ({ ts: new Date(t + "Z").toISOString(), temp_c: h.temperature_2m[i], wind_ms: h.wind_speed_10m[i] / 3.6 }));
+    await cacheSet(cacheKey, { data, source: "live" }, isPastDay(dayISO) ? WEATHER_TTL_PAST : WEATHER_TTL_TODAY);
+    return { data, source: "live" };
   } catch (primary) {
     try {
       const data = await fetchWeatherVisualCrossing(cap.lat, cap.lon, dayISO);
-      if (data.length) return { data, source: "visual-crossing", reason: "open_meteo_unavailable" };
+      if (data.length) {
+        await cacheSet(cacheKey, { data, source: "visual-crossing" }, isPastDay(dayISO) ? WEATHER_TTL_PAST : WEATHER_TTL_TODAY);
+        return { data, source: "visual-crossing", reason: "open_meteo_unavailable" };
+      }
       throw new Error("vc_empty");
     } catch (fb) {
       return { data: [], source: "demo", reason: `${primary instanceof Error ? primary.message : "err"} / ${fb instanceof Error ? fb.message : "err"}` };
