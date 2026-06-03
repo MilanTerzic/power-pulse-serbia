@@ -46,11 +46,12 @@ const AuthenticatedWeatherRoute = AuthenticatedWeatherRouteImport.update({
   path: '/weather',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedUtilizationRoute = AuthenticatedUtilizationRouteImport.update({
-  id: '/utilization',
-  path: '/utilization',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
+const AuthenticatedUtilizationRoute =
+  AuthenticatedUtilizationRouteImport.update({
+    id: '/utilization',
+    path: '/utilization',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedSpreadsRoute = AuthenticatedSpreadsRouteImport.update({
   id: '/spreads',
   path: '/spreads',
@@ -402,13 +403,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
