@@ -172,6 +172,39 @@ export const getFlowAnalytics = createServerFn({ method: "GET" })
     return { from: days[0], to: days[days.length - 1], borders, fetched_at: new Date().toISOString() };
   });
 
+// Cross-border capacity utilization: |physical flow| / technical NTC per direction.
+export const getUtilization = createServerFn({ method: "GET" })
+  .inputValidator((data: RangeInput) => data ?? {})
+  .handler(async ({ data }) => {
+    const days = expandRange(data?.from, data?.to, data?.day);
+    // All directed pairs from BORDERS (already includes both directions).
+    const pairs: Array<[ZoneCode, ZoneCode]> = BORDERS;
+    const rows = await Promise.all(pairs.map(async ([from, to]) => {
+      const parts = await Promise.all(days.map(d => fetchPhysicalFlows(from, to, d)));
+      const points = parts.flatMap(p => p.data.points)
+        .map(p => ({ ts: p.ts, mw: Number.isFinite(p.mw) ? Math.abs(p.mw) : 0 }));
+      const n = points.length;
+      const sum = points.reduce((a, p) => a + p.mw, 0);
+      const avg = n ? sum / n : null;
+      const peak = n ? Math.max(...points.map(p => p.mw)) : null;
+      const ntc = TECHNICAL_NTC_MW[`${from}_${to}`] ?? null;
+      const util_avg = avg != null && ntc ? avg / ntc : null;
+      const util_peak = peak != null && ntc ? peak / ntc : null;
+      return {
+        from, to, label: `${from} → ${to}`,
+        ntc_mw: ntc,
+        avg_flow_mw: avg,
+        peak_flow_mw: peak,
+        utilization_avg: util_avg,
+        utilization_peak: util_peak,
+        hours: n,
+        source: parts[0]?.source ?? "empty",
+        fetched_at: parts[0]?.fetched_at ?? new Date().toISOString(),
+      };
+    }));
+    return { from: days[0], to: days[days.length - 1], rows };
+  });
+
 export const getCapacity = createServerFn({ method: "GET" })
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
