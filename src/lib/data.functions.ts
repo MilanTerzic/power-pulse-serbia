@@ -10,7 +10,7 @@ import { DANUBE_STATION_COORDS } from "./markets";
 
 import { forecastPrices } from "./forecast";
 import {
-  IMPORT_ROUTES, EXPORT_ROUTES, BORDERS, PRODUCTS, ZONES, type ZoneCode, type ProductType,
+  IMPORT_ROUTES, EXPORT_ROUTES, BORDERS, PRODUCTS, ZONES, TECHNICAL_NTC_MW, type ZoneCode, type ProductType,
 } from "./markets";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
