@@ -88,6 +88,23 @@ export const DANUBE_STATION_COORDS: Record<string, { lat: number; lon: number }>
 };
 export const DANUBE_STATIONS = Object.keys(DANUBE_STATION_COORDS);
 
+// Approximate technical NTC (Net Transfer Capacity) per direction, MW.
+// Reference values from ENTSO-E SDAC / SEE CAO yearly capacity calc reports (typical, MW).
+// Used as denominator for utilization% when a live A61 value is unavailable.
+export const TECHNICAL_NTC_MW: Record<string, number> = {
+  HU_RS: 600, RS_HU: 600,
+  RO_RS: 700, RS_RO: 700,
+  BG_RS: 350, RS_BG: 350,
+  HR_RS: 600, RS_HR: 600,
+  BA_RS: 600, RS_BA: 600,
+  ME_RS: 450, RS_ME: 450,
+  MK_RS: 350, RS_MK: 350,
+  BA_HR: 600, HR_BA: 600,
+  BA_ME: 450, ME_BA: 450,
+  ME_AL: 250, AL_ME: 250,
+  ME_XK: 300, XK_ME: 300,
+};
+
 
 export const PRODUCTS: ProductType[] = ["annual", "monthly", "daily"];
 
