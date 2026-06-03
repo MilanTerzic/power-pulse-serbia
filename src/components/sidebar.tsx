@@ -1,25 +1,26 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import {
   LayoutDashboard, LineChart, ArrowLeftRight, Map, Plug, MoveRight,
-  Activity, AlertTriangle, CloudSun, Waves, TrendingUp, Briefcase, Settings, LogOut,
+  Activity, AlertTriangle, CloudSun, Waves, TrendingUp, Briefcase, Settings, LogOut, Gauge,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { AUTH_KEY } from "@/lib/auth";
 
 const NAV = [
-  { to: "/dashboard", label: "Overview",    icon: LayoutDashboard },
-  { to: "/prices",    label: "Prices",      icon: LineChart },
-  { to: "/spreads",   label: "Spreads",     icon: ArrowLeftRight },
-  { to: "/map",       label: "Route Map",   icon: Map },
-  { to: "/capacity",  label: "Capacity",    icon: Plug },
-  { to: "/flows",     label: "Flows",       icon: MoveRight },
-  { to: "/balance",   label: "Balance",     icon: Activity },
-  { to: "/outages",   label: "Outages",     icon: AlertTriangle },
-  { to: "/weather",   label: "Weather",     icon: CloudSun },
-  { to: "/danube",    label: "Danube",      icon: Waves },
-  { to: "/forecast",  label: "Forecast",    icon: TrendingUp },
-  { to: "/cbc",       label: "CBC Resale",  icon: Briefcase },
-  { to: "/settings",  label: "Settings",    icon: Settings },
+  { to: "/dashboard",    label: "Overview",     icon: LayoutDashboard },
+  { to: "/prices",       label: "Prices",       icon: LineChart },
+  { to: "/spreads",      label: "Spreads",      icon: ArrowLeftRight },
+  { to: "/map",          label: "Route Map",    icon: Map },
+  { to: "/capacity",     label: "Capacity",     icon: Plug },
+  { to: "/flows",        label: "Flows",        icon: MoveRight },
+  { to: "/utilization",  label: "Utilization",  icon: Gauge },
+  { to: "/balance",      label: "Balance",      icon: Activity },
+  { to: "/outages",      label: "Outages",      icon: AlertTriangle },
+  { to: "/weather",      label: "Weather",      icon: CloudSun },
+  { to: "/danube",       label: "Danube",       icon: Waves },
+  { to: "/forecast",     label: "Forecast",     icon: TrendingUp },
+  { to: "/cbc",          label: "CBC Resale",   icon: Briefcase },
+  { to: "/settings",     label: "Settings",     icon: Settings },
 ];
 
 export function Sidebar() {
