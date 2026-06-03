@@ -31,29 +31,45 @@ function OverviewPage() {
   const rsPoints = data?.byZone?.RS ?? [];
   const rsAvg = rsPoints.length ? rsPoints.reduce((a, p) => a + p.price, 0) / rsPoints.length : null;
 
-  // Compute neighbours best/worst
-  const neighbourAvgs = (data?.prices ?? []).filter(p => p.zone !== "RS").map(p => ({
-    zone: p.zone,
-    avg: p.data.points.length ? p.data.points.reduce((a, x) => a + x.price, 0) / p.data.points.length : null,
-    source: p.source,
-  }));
-  const lowest = neighbourAvgs.filter(n => n.avg != null).sort((a, b) => (a.avg! - b.avg!))[0];
-  const highest = neighbourAvgs.filter(n => n.avg != null).sort((a, b) => (b.avg! - a.avg!))[0];
+  // Per-zone avg (null when zone has no points — avoids showing €0 for missing data like MK pre-publish)
+  const zoneAvg = (z: string): number | null => {
+    const pts = data?.byZone?.[z] ?? [];
+    return pts.length ? pts.reduce((a, p) => a + p.price, 0) / pts.length : null;
+  };
 
-  // Best import: max gross spread (RS - source) - capacity cost
-  const opportunities = (data?.importRoutes ?? []).map(r => {
-    const srcAvg = (data?.byZone?.[r.from] ?? []).reduce((a, p) => a + p.price, 0) / Math.max(1, (data?.byZone?.[r.from] ?? []).length);
-    const gross = (rsAvg ?? 0) - srcAvg;
-    const cap = r.cap.data.price_eur_mwh ?? 0;
-    return { label: r.label, from: r.from, to: r.to, gross, cap, net: gross - cap, source: r.cap.source };
-  }).sort((a, b) => b.net - a.net);
+  // Compute neighbours best/worst — exclude zones with no data
+  const neighbourAvgs = (data?.prices ?? [])
+    .filter(p => p.zone !== "RS" && p.data.points.length > 0)
+    .map(p => ({
+      zone: p.zone,
+      avg: p.data.points.reduce((a, x) => a + x.price, 0) / p.data.points.length,
+      source: p.source,
+    }));
+  const lowest = neighbourAvgs.slice().sort((a, b) => a.avg - b.avg)[0];
+  const highest = neighbourAvgs.slice().sort((a, b) => b.avg - a.avg)[0];
 
-  const exportOpps = (data?.exportRoutes ?? []).map(r => {
-    const dstAvg = (data?.byZone?.[r.to] ?? []).reduce((a, p) => a + p.price, 0) / Math.max(1, (data?.byZone?.[r.to] ?? []).length);
-    const gross = dstAvg - (rsAvg ?? 0);
-    const cap = r.cap.data.price_eur_mwh ?? 0;
-    return { label: r.label, from: r.from, to: r.to, gross, cap, net: gross - cap, source: r.cap.source };
-  }).sort((a, b) => b.net - a.net);
+  // Best import: max gross spread (RS - source) - capacity cost. Skip routes where source has no data.
+  const opportunities = (data?.importRoutes ?? [])
+    .map(r => {
+      const srcAvg = zoneAvg(r.from);
+      if (rsAvg == null || srcAvg == null) return null;
+      const gross = rsAvg - srcAvg;
+      const cap = r.cap.data.price_eur_mwh ?? 0;
+      return { label: r.label, from: r.from, to: r.to, gross, cap, net: gross - cap, source: r.cap.source };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .sort((a, b) => b.net - a.net);
+
+  const exportOpps = (data?.exportRoutes ?? [])
+    .map(r => {
+      const dstAvg = zoneAvg(r.to);
+      if (rsAvg == null || dstAvg == null) return null;
+      const gross = dstAvg - rsAvg;
+      const cap = r.cap.data.price_eur_mwh ?? 0;
+      return { label: r.label, from: r.from, to: r.to, gross, cap, net: gross - cap, source: r.cap.source };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .sort((a, b) => b.net - a.net);
 
   // Build combined chart data — one row per hourly timestamp, all zones aligned
   const multiDay = range.from !== range.to;

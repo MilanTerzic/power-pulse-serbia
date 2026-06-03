@@ -13,6 +13,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedWeatherRouteImport } from './routes/_authenticated/weather'
+import { Route as AuthenticatedUtilizationRouteImport } from './routes/_authenticated/utilization'
 import { Route as AuthenticatedSpreadsRouteImport } from './routes/_authenticated/spreads'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedPricesRouteImport } from './routes/_authenticated/prices'
@@ -45,6 +46,12 @@ const AuthenticatedWeatherRoute = AuthenticatedWeatherRouteImport.update({
   path: '/weather',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedUtilizationRoute =
+  AuthenticatedUtilizationRouteImport.update({
+    id: '/utilization',
+    path: '/utilization',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedSpreadsRoute = AuthenticatedSpreadsRouteImport.update({
   id: '/spreads',
   path: '/spreads',
@@ -121,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/prices': typeof AuthenticatedPricesRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/spreads': typeof AuthenticatedSpreadsRoute
+  '/utilization': typeof AuthenticatedUtilizationRoute
   '/weather': typeof AuthenticatedWeatherRoute
 }
 export interface FileRoutesByTo {
@@ -138,6 +146,7 @@ export interface FileRoutesByTo {
   '/prices': typeof AuthenticatedPricesRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/spreads': typeof AuthenticatedSpreadsRoute
+  '/utilization': typeof AuthenticatedUtilizationRoute
   '/weather': typeof AuthenticatedWeatherRoute
 }
 export interface FileRoutesById {
@@ -157,6 +166,7 @@ export interface FileRoutesById {
   '/_authenticated/prices': typeof AuthenticatedPricesRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/spreads': typeof AuthenticatedSpreadsRoute
+  '/_authenticated/utilization': typeof AuthenticatedUtilizationRoute
   '/_authenticated/weather': typeof AuthenticatedWeatherRoute
 }
 export interface FileRouteTypes {
@@ -176,6 +186,7 @@ export interface FileRouteTypes {
     | '/prices'
     | '/settings'
     | '/spreads'
+    | '/utilization'
     | '/weather'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -193,6 +204,7 @@ export interface FileRouteTypes {
     | '/prices'
     | '/settings'
     | '/spreads'
+    | '/utilization'
     | '/weather'
   id:
     | '__root__'
@@ -211,6 +223,7 @@ export interface FileRouteTypes {
     | '/_authenticated/prices'
     | '/_authenticated/settings'
     | '/_authenticated/spreads'
+    | '/_authenticated/utilization'
     | '/_authenticated/weather'
   fileRoutesById: FileRoutesById
 }
@@ -248,6 +261,13 @@ declare module '@tanstack/react-router' {
       path: '/weather'
       fullPath: '/weather'
       preLoaderRoute: typeof AuthenticatedWeatherRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/utilization': {
+      id: '/_authenticated/utilization'
+      path: '/utilization'
+      fullPath: '/utilization'
+      preLoaderRoute: typeof AuthenticatedUtilizationRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/spreads': {
@@ -350,6 +370,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedPricesRoute: typeof AuthenticatedPricesRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedSpreadsRoute: typeof AuthenticatedSpreadsRoute
+  AuthenticatedUtilizationRoute: typeof AuthenticatedUtilizationRoute
   AuthenticatedWeatherRoute: typeof AuthenticatedWeatherRoute
 }
 
@@ -366,6 +387,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedPricesRoute: AuthenticatedPricesRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedSpreadsRoute: AuthenticatedSpreadsRoute,
+  AuthenticatedUtilizationRoute: AuthenticatedUtilizationRoute,
   AuthenticatedWeatherRoute: AuthenticatedWeatherRoute,
 }
 
