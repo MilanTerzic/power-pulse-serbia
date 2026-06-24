@@ -623,7 +623,11 @@ export const runForecastV2 = createServerFn({ method: "POST" })
     ).catch(() => null) : Promise.resolve(null);
     const weatherP = useFund ? fetchWeather("RS", historyTo).catch(() => null) : Promise.resolve(null);
     const eexP = fetchEexFutures().catch(() => ({
-      source: "unavailable" as const, reason: "fetch failed", prices: [] as Array<{ product: EexProduct; price_eur_mwh: number }>, fetched_at: new Date().toISOString(),
+      source: "unavailable" as const,
+      reason: "fetch failed",
+      anchor_zone: "HU" as const,
+      prices: [] as Array<{ zone: "HU" | "CZ" | "PL" | "SK"; product: EexProduct; period_label: string; price_eur_mwh: number; fetched_at: string }>,
+      fetched_at: new Date().toISOString(),
     }));
 
     const [history, balance, outRes, danube, wx, eex] = await Promise.all([
