@@ -724,11 +724,30 @@ export const runForecastV2 = createServerFn({ method: "POST" })
       explain: isWeekend ? "Weekend demand typically lower" : `Month ${today.getUTCMonth() + 1}, weekday`,
     });
 
-    // 3. EEX futures anchor
+    // 3. EEX futures anchor (with synthetic fallback derived from SEEPEX history)
     const wantedEex: EexProduct | null = product === "week" ? "week" : product === "month" ? "month" : null;
-    const eexAnchor = wantedEex ? (eex.prices.find(p => p.product === wantedEex)?.price_eur_mwh ?? null) : null;
-    const eexFresh = eex.source !== "unavailable";
-    if (wantedEex && eexAnchor == null) warnings.push("EEX futures unavailable — falling back to statistical-only forecast.");
+    const liveEexAnchor = wantedEex ? (eex.prices.find(p => p.product === wantedEex)?.price_eur_mwh ?? null) : null;
+    const eexFresh = eex.source !== "unavailable" && liveEexAnchor != null;
+    // Synthetic anchor: weighted mean of last 30d (60%) + last 365d (40%) of filtered history.
+    // Provides a stable mean-reversion target when EEX scrape is unavailable.
+    let syntheticAnchor: number | null = null;
+    {
+      const filt = filterByLoadType(history, loadType).map(p => p.price);
+      if (filt.length >= 24) {
+        const mean = (a: number[]) => a.reduce((s, x) => s + x, 0) / a.length;
+        const recent = filt.slice(-24 * 30);
+        const long = filt.slice(-24 * 365);
+        syntheticAnchor = 0.6 * mean(recent) + 0.4 * mean(long);
+      }
+    }
+    const eexAnchor = liveEexAnchor ?? syntheticAnchor;
+    if (wantedEex && liveEexAnchor == null) {
+      warnings.push(
+        syntheticAnchor != null
+          ? `EEX futures unavailable — using synthetic anchor from SEEPEX history (€${syntheticAnchor.toFixed(2)}/MWh).`
+          : "EEX futures unavailable — using statistical-only forecast."
+      );
+    }
 
     // 4. Build forecast per product
     const filteredHist = filterByLoadType(history, loadType);
@@ -783,7 +802,8 @@ export const runForecastV2 = createServerFn({ method: "POST" })
       statistical: statisticalForecast,
       eexAnchor,
       fundamentalAdj,
-      eexFresh: eexFresh && eexAnchor != null,
+      // Treat synthetic anchor as a soft anchor (lower weight) when EEX is down.
+      eexFresh: eexAnchor != null && (eexFresh || syntheticAnchor != null),
       statConfidence: statConf,
     });
     forecastPts = forecastPts.map((p, i) => ({ ...p, blended: blended[i] }));
