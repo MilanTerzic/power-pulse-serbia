@@ -802,7 +802,8 @@ export const runForecastV2 = createServerFn({ method: "POST" })
       statistical: statisticalForecast,
       eexAnchor,
       fundamentalAdj,
-      eexFresh: eexFresh && eexAnchor != null,
+      // Treat synthetic anchor as a soft anchor (lower weight) when EEX is down.
+      eexFresh: eexAnchor != null && (eexFresh || syntheticAnchor != null),
       statConfidence: statConf,
     });
     forecastPts = forecastPts.map((p, i) => ({ ...p, blended: blended[i] }));
