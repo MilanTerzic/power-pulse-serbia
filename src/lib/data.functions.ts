@@ -623,7 +623,11 @@ export const runForecastV2 = createServerFn({ method: "POST" })
     ).catch(() => null) : Promise.resolve(null);
     const weatherP = useFund ? fetchWeather("RS", historyTo).catch(() => null) : Promise.resolve(null);
     const eexP = fetchEexFutures().catch(() => ({
-      source: "unavailable" as const, reason: "fetch failed", prices: [] as Array<{ product: EexProduct; price_eur_mwh: number }>, fetched_at: new Date().toISOString(),
+      source: "unavailable" as const,
+      reason: "fetch failed",
+      anchor_zone: "HU" as const,
+      prices: [] as Array<{ zone: "HU" | "CZ" | "PL" | "SK"; product: EexProduct; period_label: string; price_eur_mwh: number; fetched_at: string }>,
+      fetched_at: new Date().toISOString(),
     }));
 
     const [history, balance, outRes, danube, wx, eex] = await Promise.all([
@@ -724,12 +728,25 @@ export const runForecastV2 = createServerFn({ method: "POST" })
       explain: isWeekend ? "Weekend demand typically lower" : `Month ${today.getUTCMonth() + 1}, weekday`,
     });
 
-    // 3. EEX futures anchor (with synthetic fallback derived from SEEPEX history)
-    const wantedEex: EexProduct | null = product === "week" ? "week" : product === "month" ? "month" : null;
-    const liveEexAnchor = wantedEex ? (eex.prices.find(p => p.product === wantedEex)?.price_eur_mwh ?? null) : null;
+    // 3. EEX/PXE futures anchor (Hungary baseload = proxy for SEEPEX)
+    //    Maps DA→front month, week→front month, month→front month, with
+    //    fallback to nearest quarter / Cal if month row is missing.
+    const anchorZone = eex.anchor_zone ?? "HU";
+    const anchorRows = eex.prices.filter(p => p.zone === anchorZone);
+    const pickAnchor = (): { price: number; label: string } | null => {
+      const order: EexProduct[] = product === "month" || product === "week" || product === "da"
+        ? ["month", "quarter", "year"]
+        : ["year", "quarter", "month"];
+      for (const prod of order) {
+        const row = anchorRows.find(p => p.product === prod);
+        if (row) return { price: row.price_eur_mwh, label: `${row.zone} ${row.period_label}` };
+      }
+      return null;
+    };
+    const liveAnchor = pickAnchor();
+    const liveEexAnchor = liveAnchor?.price ?? null;
     const eexFresh = eex.source !== "unavailable" && liveEexAnchor != null;
-    // Synthetic anchor: weighted mean of last 30d (60%) + last 365d (40%) of filtered history.
-    // Provides a stable mean-reversion target when EEX scrape is unavailable.
+    // Synthetic fallback: weighted mean of last 30d (60%) + last 365d (40%).
     let syntheticAnchor: number | null = null;
     {
       const filt = filterByLoadType(history, loadType).map(p => p.price);
@@ -741,11 +758,13 @@ export const runForecastV2 = createServerFn({ method: "POST" })
       }
     }
     const eexAnchor = liveEexAnchor ?? syntheticAnchor;
-    if (wantedEex && liveEexAnchor == null) {
+    if (liveEexAnchor != null && liveAnchor) {
+      warnings.push(`Anchor: PXE ${liveAnchor.label} = €${liveEexAnchor.toFixed(2)}/MWh (HU baseload proxy).`);
+    } else {
       warnings.push(
         syntheticAnchor != null
-          ? `EEX futures unavailable — using synthetic anchor from SEEPEX history (€${syntheticAnchor.toFixed(2)}/MWh).`
-          : "EEX futures unavailable — using statistical-only forecast."
+          ? `PXE/EEX futures unavailable — using synthetic anchor from SEEPEX history (€${syntheticAnchor.toFixed(2)}/MWh).`
+          : "PXE/EEX futures unavailable — using statistical-only forecast."
       );
     }
 
