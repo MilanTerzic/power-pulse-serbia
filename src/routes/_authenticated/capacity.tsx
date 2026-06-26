@@ -35,10 +35,8 @@ function CapacityPage() {
   const rows = Object.values(grouped);
 
   // ---- Historical view state ----
-  const directions = useMemo(
-    () => BORDERS.flatMap(([a, b]) => [[a, b] as [ZoneCode, ZoneCode], [b, a] as [ZoneCode, ZoneCode]]),
-    [],
-  );
+  // BORDERS already contains both directions — don't duplicate.
+  const directions = useMemo(() => BORDERS as ReadonlyArray<[ZoneCode, ZoneCode]>, []);
   const [dirIdx, setDirIdx] = useState(0);
   const [product, setProduct] = useState<ProductType>("daily");
   const today = new Date().toISOString().slice(0, 10);
@@ -53,11 +51,12 @@ function CapacityPage() {
     queryFn: () => histFn({ data: { from: hFrom_z, to: hTo_z, product, from_date: hFrom, to_date: hTo } }),
   });
 
-  const chartData = (hq.data?.rows ?? []).map(r => ({
-    day: r.day,
-    price: r.price_eur_mwh ?? null,
-  }));
-  const hasData = chartData.some(p => p.price != null);
+  const allRows = hq.data?.rows ?? [];
+  // Only show real ENTSO-E data; hide synthetic "demo" fallback rows.
+  const realRows = allRows.filter(r => r.source !== "demo" && r.price_eur_mwh != null);
+  const chartData = realRows.map(r => ({ day: r.day, price: r.price_eur_mwh }));
+  const hasData = chartData.length > 0;
+  const demoCount = allRows.length - realRows.length;
   const productLabel = product === "daily" ? "Daily" : product === "monthly" ? "Monthly" : "Annual";
 
   return (
@@ -154,11 +153,17 @@ function CapacityPage() {
           {hq.isLoading ? (
             <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">Loading…</div>
           ) : !hasData ? (
-            <div className="h-64 flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border rounded">
-              No historical capacity price data available for this selection.
+            <div className="h-64 flex flex-col items-center justify-center gap-1 text-sm text-muted-foreground border border-dashed border-border rounded p-4 text-center">
+              <span>No published ENTSO-E A25 capacity prices for {hFrom_z} → {hTo_z} ({product}) in this range.</span>
+              <span className="text-xs">Try the opposite direction, a different product, or an earlier date range. Many SEE borders publish A25 only sporadically.</span>
             </div>
           ) : (
             <>
+              {demoCount > 0 && (
+                <div className="mb-3 text-[11px] text-muted-foreground">
+                  {demoCount} day{demoCount === 1 ? "" : "s"} hidden — ENTSO-E returned no A25 price (synthetic fallback suppressed).
+                </div>
+              )}
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
@@ -188,7 +193,7 @@ function CapacityPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(hq.data?.rows ?? []).map(r => (
+                    {realRows.map(r => (
                       <tr key={r.day} className="border-t border-border/60">
                         <td className="py-1.5">{r.day}</td>
                         <td>{r.from} → {r.to}</td>
