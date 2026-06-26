@@ -35,10 +35,8 @@ function CapacityPage() {
   const rows = Object.values(grouped);
 
   // ---- Historical view state ----
-  const directions = useMemo(
-    () => BORDERS.flatMap(([a, b]) => [[a, b] as [ZoneCode, ZoneCode], [b, a] as [ZoneCode, ZoneCode]]),
-    [],
-  );
+  // BORDERS already contains both directions — don't duplicate.
+  const directions = useMemo(() => BORDERS as ReadonlyArray<[ZoneCode, ZoneCode]>, []);
   const [dirIdx, setDirIdx] = useState(0);
   const [product, setProduct] = useState<ProductType>("daily");
   const today = new Date().toISOString().slice(0, 10);
