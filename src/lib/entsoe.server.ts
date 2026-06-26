@@ -127,6 +127,10 @@ function tagOne(xml: string, tag: string): string | null {
   return m ? m[1].trim() : null;
 }
 
+function avg(values: number[]): number | null {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+}
+
 function parseTimeSeriesHourly(xml: string): Array<{ ts: string; value: number }> {
   const clean = stripNs(xml);
   const out: Array<{ ts: string; value: number }> = [];
@@ -152,6 +156,23 @@ function parseTimeSeriesHourly(xml: string): Array<{ ts: string; value: number }
   const byTs = new Map<string, number>();
   for (const r of out) byTs.set(r.ts, r.value);
   return [...byTs.entries()].map(([ts, value]) => ({ ts, value })).sort((a, b) => a.ts.localeCompare(b.ts));
+}
+
+function parseAllocationSummary(xml: string): { price_eur_mwh: number | null; quantity_mw: number | null } {
+  const clean = stripNs(xml);
+  const prices: number[] = [];
+  const quantities: number[] = [];
+  for (const ts of tagAll(clean, "TimeSeries")) {
+    for (const period of tagAll(ts, "Period")) {
+      for (const pt of tagAll(period, "Point")) {
+        const price = parseFloat(tagOne(pt, "price.amount") ?? "");
+        const quantity = parseFloat(tagOne(pt, "quantity") ?? "");
+        if (Number.isFinite(price)) prices.push(price);
+        if (Number.isFinite(quantity)) quantities.push(quantity);
+      }
+    }
+  }
+  return { price_eur_mwh: avg(prices), quantity_mw: avg(quantities) };
 }
 
 // --- Public fetchers --------------------------------------------------------
@@ -252,29 +273,48 @@ export async function fetchExplicitAllocation(
     allocated_mw: null,
     unit_warning: product !== "daily" ? "Monthly/annual A25 prices may be totals depending on TSO" : undefined,
   };
+  const t = token();
   if (!force) {
     const cached = await cacheGet<CapacityRow>(key, DEFAULT_TTL);
-    if (cached) return { data: cached, source: "cache", fetched_at: new Date().toISOString() };
+    if (cached && (!t || cached.offered_mw != null || cached.allocated_mw != null)) {
+      return { data: cached, source: "cache", fetched_at: new Date().toISOString() };
+    }
   }
   if (demo) return staleCacheOrEmpty(key, emptyData, "demo_disabled");
-  if (!token()) return staleCacheOrEmpty(key, emptyData, "no_token");
+  if (!t) return staleCacheOrEmpty(key, emptyData, "no_token");
   try {
     const start = new Date(dayISO + "T00:00:00Z");
     const end = new Date(start.getTime() + 24 * 3600_000);
-    const xml = await entsoeRaw({
+    const baseParams = {
       documentType: ENTSOE_DOCUMENT_TYPES.explicit_allocations,
-      businessType: "B05",
       "contract_MarketAgreement.Type": MARKET_AGREEMENT_TYPES[product],
       in_Domain: ZONES[to].eic,
       out_Domain: ZONES[from].eic,
       periodStart: ymdh(start),
       periodEnd: ymdh(end),
-    });
-    const series = parseTimeSeriesHourly(xml).map(p => p.value).filter(Number.isFinite);
-    const price = series.length ? series.reduce((a, b) => a + b, 0) / series.length : null;
-    if (price == null) return staleCacheOrEmpty(key, emptyData, "no_data");
+    };
+
+    const allocatedXml = await entsoeRaw({ ...baseParams, businessType: "B05" });
+    const allocated = parseAllocationSummary(allocatedXml);
+
+    let offeredMw: number | null = null;
+    try {
+      const offeredXml = await entsoeRaw({ ...baseParams, businessType: "A31" });
+      offeredMw = parseAllocationSummary(offeredXml).quantity_mw;
+    } catch {
+      offeredMw = null;
+    }
+
+    if (allocated.price_eur_mwh == null && allocated.quantity_mw == null && offeredMw == null) {
+      return staleCacheOrEmpty(key, emptyData, "no_data");
+    }
     const row: CapacityRow = {
-      from, to, product, price_eur_mwh: price, offered_mw: null, allocated_mw: null,
+      from,
+      to,
+      product,
+      price_eur_mwh: allocated.price_eur_mwh,
+      offered_mw: offeredMw,
+      allocated_mw: allocated.quantity_mw,
       unit_warning: product !== "daily" ? "Monthly/annual A25 prices may be totals depending on TSO" : undefined,
     };
     await cacheSet(key, row, ttlFor(TTL.cap_today, TTL.cap_past, dayISO));
