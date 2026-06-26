@@ -188,7 +188,7 @@ function CapacityPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(hq.data?.rows ?? []).map(r => (
+                    {realRows.map(r => (
                       <tr key={r.day} className="border-t border-border/60">
                         <td className="py-1.5">{r.day}</td>
                         <td>{r.from} → {r.to}</td>
