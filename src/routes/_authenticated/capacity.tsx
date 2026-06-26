@@ -19,18 +19,128 @@ export const Route = createFileRoute("/_authenticated/capacity")({
   component: CapacityPage,
 });
 
-function deliveryPeriodLabel(day: string, product: ProductType, compact = false) {
-  const d = new Date(`${day}T00:00:00Z`);
-  if (!Number.isFinite(d.getTime())) return day;
-  if (product === "annual") return String(d.getUTCFullYear());
-  if (product === "monthly") {
-    return d.toLocaleString("en-GB", {
-      month: compact ? "short" : "long",
-      year: "numeric",
-      timeZone: "UTC",
-    });
-  }
-  return day;
+type HistoryRow = {
+  day: string;
+  from: ZoneCode;
+  to: ZoneCode;
+  product: ProductType;
+  price_eur_mwh: number | null;
+  offered_mw: number | null;
+  allocated_mw: number | null;
+  unit_warning?: string;
+  source: string;
+  fetched_at: string;
+};
+
+type DisplayHistoryRow = HistoryRow & {
+  sample_count?: number;
+  weighted_days?: number;
+  sample_dates?: string[];
+};
+
+const DAY_MS = 86400_000;
+
+function parseDay(day: string) {
+  const t = Date.parse(`${day}T00:00:00Z`);
+  return Number.isFinite(t) ? new Date(t) : null;
+}
+
+function isoDay(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+function monthStart(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+}
+
+function monthEnd(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
+}
+
+function daysInclusive(from: Date, to: Date) {
+  return Math.max(1, Math.floor((to.getTime() - from.getTime()) / DAY_MS) + 1);
+}
+
+function weightedNullable(sum: number, days: number) {
+  return days > 0 ? sum / days : null;
+}
+
+function aggregateMonthlyRows(rows: HistoryRow[]): DisplayHistoryRow[] {
+  const sorted = [...rows]
+    .filter(r => r.product === "monthly" && r.price_eur_mwh != null)
+    .sort((a, b) => a.day.localeCompare(b.day));
+
+  const grouped = new Map<string, {
+    first: HistoryRow;
+    priceSum: number;
+    priceDays: number;
+    offeredSum: number;
+    offeredDays: number;
+    allocatedSum: number;
+    allocatedDays: number;
+    sources: Set<string>;
+    sampleDates: string[];
+    fetchedAt: string;
+    unitWarning?: string;
+  }>();
+
+  sorted.forEach((row, idx) => {
+    const current = parseDay(row.day);
+    if (!current || row.price_eur_mwh == null) return;
+
+    const start = monthStart(current);
+    const end = monthEnd(current);
+    const next = parseDay(sorted[idx + 1]?.day ?? "");
+    const segmentEnd = next && next.getTime() > current.getTime()
+      ? new Date(Math.min(end.getTime(), next.getTime() - DAY_MS))
+      : end;
+    const weightDays = daysInclusive(current, segmentEnd);
+    const key = isoDay(start);
+
+    const g = grouped.get(key) ?? {
+      first: { ...row, day: key },
+      priceSum: 0,
+      priceDays: 0,
+      offeredSum: 0,
+      offeredDays: 0,
+      allocatedSum: 0,
+      allocatedDays: 0,
+      sources: new Set<string>(),
+      sampleDates: [],
+      fetchedAt: row.fetched_at,
+      unitWarning: row.unit_warning,
+    };
+
+    g.priceSum += row.price_eur_mwh * weightDays;
+    g.priceDays += weightDays;
+    if (row.offered_mw != null && Number.isFinite(row.offered_mw)) {
+      g.offeredSum += row.offered_mw * weightDays;
+      g.offeredDays += weightDays;
+    }
+    if (row.allocated_mw != null && Number.isFinite(row.allocated_mw)) {
+      g.allocatedSum += row.allocated_mw * weightDays;
+      g.allocatedDays += weightDays;
+    }
+    g.sources.add(row.source);
+    g.sampleDates.push(row.day);
+    g.fetchedAt = row.fetched_at > g.fetchedAt ? row.fetched_at : g.fetchedAt;
+    if (row.unit_warning) g.unitWarning = row.unit_warning;
+    grouped.set(key, g);
+  });
+
+  return [...grouped.entries()].map(([monthDate, g]) => ({
+    ...g.first,
+    day: monthDate,
+    price_eur_mwh: weightedNullable(g.priceSum, g.priceDays),
+    offered_mw: weightedNullable(g.offeredSum, g.offeredDays),
+    allocated_mw: weightedNullable(g.allocatedSum, g.allocatedDays),
+    source: g.sources.size === 1 ? [...g.sources][0] : "partial",
+    fetched_at: g.fetchedAt,
+    unit_warning: g.unitWarning,
+    sample_count: g.sampleDates.length,
+    weighted_days: g.priceDays,
+    sample_dates: g.sampleDates,
+  }));
 }
 
 function CapacityPage() {
@@ -66,17 +176,19 @@ function CapacityPage() {
   });
 
   const allRows = hq.data?.rows ?? [];
-  // Only show real ENTSO-E data; hide synthetic "demo" fallback rows.
-  const realRows = allRows.filter(r => r.source !== "demo" && r.price_eur_mwh != null);
-  const rowsWithPeriods = realRows.map(r => ({
-    ...r,
-    deliveryPeriod: deliveryPeriodLabel(r.day, r.product),
-    chartPeriod: deliveryPeriodLabel(r.day, r.product, true),
+  const realRows = allRows.filter(r => r.source !== "demo" && r.price_eur_mwh != null) as HistoryRow[];
+  const displayRows: DisplayHistoryRow[] = product === "monthly" ? aggregateMonthlyRows(realRows) : realRows;
+  const chartData = displayRows.map(r => ({
+    day: r.day,
+    price: r.price_eur_mwh,
+    sample_dates: r.sample_dates,
+    sample_count: r.sample_count,
+    weighted_days: r.weighted_days,
   }));
-  const chartData = rowsWithPeriods.map(r => ({ day: r.chartPeriod, period: r.deliveryPeriod, query_date: r.day, price: r.price_eur_mwh }));
   const hasData = chartData.length > 0;
-  const demoCount = allRows.length - realRows.length;
+  const missingCount = allRows.length - realRows.length;
   const productLabel = product === "daily" ? "Daily" : product === "monthly" ? "Monthly" : "Annual";
+  const dateColumnLabel = product === "monthly" ? "Month date" : product === "annual" ? "Year date" : "Date";
 
   return (
     <>
@@ -119,20 +231,22 @@ function CapacityPage() {
                     <Info className="w-3.5 h-3.5 text-muted-foreground" />
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs text-xs">
-                    Monthly/annual A25 prices may be totals (EUR) rather than EUR/MWh depending on TSO. Units preserved as received.
+                    Monthly rows are grouped by exact calendar month date. If more than one sample falls in the same month, price is day-weighted inside that month.
                   </TooltipContent>
                 </UITooltip>
               </TooltipProvider>
               <Button
                 size="sm" variant="ghost" className="gap-1.5"
-                onClick={() => downloadCSV(`capacity-history_${hFrom_z}-${hTo_z}_${product}.csv`, rowsWithPeriods.map(r => ({
-                  query_date: r.day,
-                  delivery_period: r.deliveryPeriod,
+                onClick={() => downloadCSV(`capacity-history_${hFrom_z}-${hTo_z}_${product}.csv`, displayRows.map(r => ({
+                  date: r.day,
                   direction: `${r.from} -> ${r.to}`,
                   product: r.product,
                   price_eur_mwh: r.price_eur_mwh,
                   offered_mw: r.offered_mw,
                   allocated_mw: r.allocated_mw,
+                  weighted_days: r.weighted_days ?? "",
+                  sample_count: r.sample_count ?? "",
+                  sample_dates: r.sample_dates?.join("; ") ?? "",
                   source: r.source,
                   fetched_at: r.fetched_at,
                 }))}
@@ -180,7 +294,7 @@ function CapacityPage() {
           </div>
 
           {hq.isLoading ? (
-            <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">Loading…</div>
+            <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">Loading...</div>
           ) : !hasData ? (
             <div className="h-64 flex flex-col items-center justify-center gap-1 text-sm text-muted-foreground border border-dashed border-border rounded p-4 text-center">
               <span>No published ENTSO-E A25 capacity prices for {hFrom_z} → {hTo_z} ({product}) in this range.</span>
@@ -188,9 +302,9 @@ function CapacityPage() {
             </div>
           ) : (
             <>
-              {demoCount > 0 && (
+              {missingCount > 0 && (
                 <div className="mb-3 text-[11px] text-muted-foreground">
-                  {demoCount} day{demoCount === 1 ? "" : "s"} hidden — ENTSO-E returned no A25 price (synthetic fallback suppressed).
+                  {missingCount} sample{missingCount === 1 ? "" : "s"} hidden because no price was available.
                 </div>
               )}
               <div className="h-64">
@@ -202,9 +316,12 @@ function CapacityPage() {
                     <Tooltip
                       contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
                       formatter={(v: number) => [fmtPrice(v), "€/MWh"]}
-                      labelFormatter={(_, items) => {
-                        const payload = items?.[0]?.payload as { period?: string; query_date?: string } | undefined;
-                        return payload?.query_date ? `${payload.period} (${payload.query_date})` : payload?.period;
+                      labelFormatter={(label, items) => {
+                        const payload = items?.[0]?.payload as { sample_count?: number; sample_dates?: string[]; weighted_days?: number } | undefined;
+                        if (payload?.sample_count && payload.sample_count > 1) {
+                          return `${label} · ${payload.weighted_days} weighted days from ${payload.sample_dates?.join(", ")}`;
+                        }
+                        return String(label);
                       }}
                     />
                     <Line type="monotone" dataKey="price" stroke="#1ec8c8" strokeWidth={2} dot={false} connectNulls />
@@ -215,8 +332,7 @@ function CapacityPage() {
                 <table className="w-full text-sm">
                   <thead className="text-[10px] uppercase tracking-wider text-muted-foreground sticky top-0 bg-card">
                     <tr>
-                      <th className="text-left py-1.5">Query date</th>
-                      <th className="text-left">Delivery period</th>
+                      <th className="text-left py-1.5">{dateColumnLabel}</th>
                       <th className="text-left">Direction</th>
                       <th className="text-left">Product</th>
                       <th className="text-right">Price</th>
@@ -227,10 +343,16 @@ function CapacityPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rowsWithPeriods.map(r => (
+                    {displayRows.map(r => (
                       <tr key={r.day} className="border-t border-border/60">
-                        <td className="py-1.5">{r.day}</td>
-                        <td className="font-medium">{r.deliveryPeriod}</td>
+                        <td className="py-1.5 font-medium">
+                          {r.day}
+                          {r.sample_count && r.sample_count > 1 && (
+                            <div className="text-[10px] text-muted-foreground font-normal">
+                              weighted avg from {r.sample_dates?.join(", ")}
+                            </div>
+                          )}
+                        </td>
                         <td>{r.from} → {r.to}</td>
                         <td className="capitalize">{r.product}</td>
                         <td className="text-right num">{fmtPrice(r.price_eur_mwh)}</td>
