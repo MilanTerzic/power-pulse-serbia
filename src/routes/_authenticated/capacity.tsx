@@ -159,6 +159,11 @@ function CapacityPage() {
             </div>
           ) : (
             <>
+              {demoCount > 0 && (
+                <div className="mb-3 text-[11px] text-muted-foreground">
+                  {demoCount} day{demoCount === 1 ? "" : "s"} hidden — ENTSO-E returned no A25 price (synthetic fallback suppressed).
+                </div>
+              )}
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
