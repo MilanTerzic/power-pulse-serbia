@@ -19,6 +19,20 @@ export const Route = createFileRoute("/_authenticated/capacity")({
   component: CapacityPage,
 });
 
+function deliveryPeriodLabel(day: string, product: ProductType, compact = false) {
+  const d = new Date(`${day}T00:00:00Z`);
+  if (!Number.isFinite(d.getTime())) return day;
+  if (product === "annual") return String(d.getUTCFullYear());
+  if (product === "monthly") {
+    return d.toLocaleString("en-GB", {
+      month: compact ? "short" : "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  }
+  return day;
+}
+
 function CapacityPage() {
   const fn = useServerFn(getCapacity);
   const { range } = useDateRange();
@@ -54,7 +68,12 @@ function CapacityPage() {
   const allRows = hq.data?.rows ?? [];
   // Only show real ENTSO-E data; hide synthetic "demo" fallback rows.
   const realRows = allRows.filter(r => r.source !== "demo" && r.price_eur_mwh != null);
-  const chartData = realRows.map(r => ({ day: r.day, price: r.price_eur_mwh }));
+  const rowsWithPeriods = realRows.map(r => ({
+    ...r,
+    deliveryPeriod: deliveryPeriodLabel(r.day, r.product),
+    chartPeriod: deliveryPeriodLabel(r.day, r.product, true),
+  }));
+  const chartData = rowsWithPeriods.map(r => ({ day: r.chartPeriod, period: r.deliveryPeriod, query_date: r.day, price: r.price_eur_mwh }));
   const hasData = chartData.length > 0;
   const demoCount = allRows.length - realRows.length;
   const productLabel = product === "daily" ? "Daily" : product === "monthly" ? "Monthly" : "Annual";
@@ -106,7 +125,17 @@ function CapacityPage() {
               </TooltipProvider>
               <Button
                 size="sm" variant="ghost" className="gap-1.5"
-                onClick={() => downloadCSV(`capacity-history_${hFrom_z}-${hTo_z}_${product}.csv`, hq.data?.rows ?? [])}
+                onClick={() => downloadCSV(`capacity-history_${hFrom_z}-${hTo_z}_${product}.csv`, rowsWithPeriods.map(r => ({
+                  query_date: r.day,
+                  delivery_period: r.deliveryPeriod,
+                  direction: `${r.from} -> ${r.to}`,
+                  product: r.product,
+                  price_eur_mwh: r.price_eur_mwh,
+                  offered_mw: r.offered_mw,
+                  allocated_mw: r.allocated_mw,
+                  source: r.source,
+                  fetched_at: r.fetched_at,
+                }))}
               >
                 <Download className="w-3.5 h-3.5" />CSV
               </Button>
@@ -173,6 +202,10 @@ function CapacityPage() {
                     <Tooltip
                       contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
                       formatter={(v: number) => [fmtPrice(v), "€/MWh"]}
+                      labelFormatter={(_, items) => {
+                        const payload = items?.[0]?.payload as { period?: string; query_date?: string } | undefined;
+                        return payload?.query_date ? `${payload.period} (${payload.query_date})` : payload?.period;
+                      }}
                     />
                     <Line type="monotone" dataKey="price" stroke="#1ec8c8" strokeWidth={2} dot={false} connectNulls />
                   </LineChart>
@@ -182,7 +215,8 @@ function CapacityPage() {
                 <table className="w-full text-sm">
                   <thead className="text-[10px] uppercase tracking-wider text-muted-foreground sticky top-0 bg-card">
                     <tr>
-                      <th className="text-left py-1.5">Period</th>
+                      <th className="text-left py-1.5">Query date</th>
+                      <th className="text-left">Delivery period</th>
                       <th className="text-left">Direction</th>
                       <th className="text-left">Product</th>
                       <th className="text-right">Price</th>
@@ -193,9 +227,10 @@ function CapacityPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {realRows.map(r => (
+                    {rowsWithPeriods.map(r => (
                       <tr key={r.day} className="border-t border-border/60">
                         <td className="py-1.5">{r.day}</td>
+                        <td className="font-medium">{r.deliveryPeriod}</td>
                         <td>{r.from} → {r.to}</td>
                         <td className="capitalize">{r.product}</td>
                         <td className="text-right num">{fmtPrice(r.price_eur_mwh)}</td>
