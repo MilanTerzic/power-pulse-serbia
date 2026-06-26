@@ -36,8 +36,8 @@ function LoginPage() {
           <div className="inline-flex items-center gap-2">
             <div className="w-8 h-8 rounded bg-gradient-to-br from-primary to-info grid place-items-center text-primary-foreground font-bold">⚡</div>
             <div className="text-left">
-              <div className="font-semibold tracking-tight">SEE Trading Desk</div>
-              <div className="text-[11px] text-muted-foreground uppercase tracking-wider">Serbia Arbitrage & CBC Resale</div>
+              <div className="font-semibold tracking-tight text-white">SEE Trading Desk</div>
+              <div className="text-[11px] text-white/80 uppercase tracking-wider">Serbia Arbitrage & CBC Resale</div>
             </div>
           </div>
         </div>
@@ -45,14 +45,14 @@ function LoginPage() {
           <CardContent className="p-6">
             <form onSubmit={onSubmit} className="space-y-3">
               <div className="space-y-1.5">
-                <Label>Password</Label>
-                <Input type="password" autoFocus required value={password} onChange={e => setPassword(e.target.value)} />
+                <Label className="text-white">Password</Label>
+                <Input type="password" autoFocus required value={password} onChange={e => setPassword(e.target.value)} className="text-white" />
               </div>
               <Button type="submit" className="w-full" disabled={busy}>Enter</Button>
             </form>
           </CardContent>
         </Card>
-        <p className="text-center text-xs text-muted-foreground mt-6">
+        <p className="text-center text-xs text-white/70 mt-6">
           Informational/analytical tool. Always verify before trading.
         </p>
       </div>
