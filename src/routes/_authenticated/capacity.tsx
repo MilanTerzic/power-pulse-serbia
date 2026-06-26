@@ -51,11 +51,12 @@ function CapacityPage() {
     queryFn: () => histFn({ data: { from: hFrom_z, to: hTo_z, product, from_date: hFrom, to_date: hTo } }),
   });
 
-  const chartData = (hq.data?.rows ?? []).map(r => ({
-    day: r.day,
-    price: r.price_eur_mwh ?? null,
-  }));
-  const hasData = chartData.some(p => p.price != null);
+  const allRows = hq.data?.rows ?? [];
+  // Only show real ENTSO-E data; hide synthetic "demo" fallback rows.
+  const realRows = allRows.filter(r => r.source !== "demo" && r.price_eur_mwh != null);
+  const chartData = realRows.map(r => ({ day: r.day, price: r.price_eur_mwh }));
+  const hasData = chartData.length > 0;
+  const demoCount = allRows.length - realRows.length;
   const productLabel = product === "daily" ? "Daily" : product === "monthly" ? "Monthly" : "Annual";
 
   return (
