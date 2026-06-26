@@ -153,8 +153,9 @@ function CapacityPage() {
           {hq.isLoading ? (
             <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">Loading…</div>
           ) : !hasData ? (
-            <div className="h-64 flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border rounded">
-              No historical capacity price data available for this selection.
+            <div className="h-64 flex flex-col items-center justify-center gap-1 text-sm text-muted-foreground border border-dashed border-border rounded p-4 text-center">
+              <span>No published ENTSO-E A25 capacity prices for {hFrom_z} → {hTo_z} ({product}) in this range.</span>
+              <span className="text-xs">Try the opposite direction, a different product, or an earlier date range. Many SEE borders publish A25 only sporadically.</span>
             </div>
           ) : (
             <>
