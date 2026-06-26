@@ -249,7 +249,7 @@ function CapacityPage() {
                   sample_dates: r.sample_dates?.join("; ") ?? "",
                   source: r.source,
                   fetched_at: r.fetched_at,
-                }))}
+                })))}
               >
                 <Download className="w-3.5 h-3.5" />CSV
               </Button>
