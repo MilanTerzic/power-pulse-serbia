@@ -311,10 +311,12 @@ function CapacityPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={11} />
-                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} />
+                    <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" tick={{ fill: "#ffffff" }} axisLine={{ stroke: "hsl(var(--muted-foreground))" }} fontSize={11} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" tick={{ fill: "#ffffff" }} axisLine={{ stroke: "hsl(var(--muted-foreground))" }} fontSize={11} />
                     <Tooltip
                       contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
+                      itemStyle={{ color: "#ffffff" }}
+                      labelStyle={{ color: "#ffffff" }}
                       formatter={(v: number) => [fmtPrice(v), "€/MWh"]}
                       labelFormatter={(label, items) => {
                         const payload = items?.[0]?.payload as { sample_count?: number; sample_dates?: string[]; weighted_days?: number } | undefined;
