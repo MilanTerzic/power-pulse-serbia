@@ -164,25 +164,45 @@ function OverviewPage() {
 
         <Panel
           title={`Hourly day-ahead spot price by country — ${range.from === range.to ? range.from : `${range.from} → ${range.to}`}`}
-          actions={<span className="text-[10px] text-muted-foreground">€/MWh · time in CET (Europe/Belgrade)</span>}
+          actions={<span className="text-[10px] text-muted-foreground">€/MWh · time in CET (Europe/Belgrade){chartData.length !== displayChartData.length ? ` · downsampled ${chartData.length}→${displayChartData.length}` : ""}</span>}
         >
           <p className="text-xs text-muted-foreground mb-2">
             Each line is one country's day-ahead auction clearing price for every hour of the selected period.
             Serbia (RS, thick teal) is the reference: neighbours above RS suggest export opportunities, below RS suggest import opportunities.
           </p>
+          <div className="flex flex-wrap gap-1.5 mb-3 items-center">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-1">Countries:</span>
+            {ZONE_LINES.filter(z => availableZones.includes(z.key)).map(z => {
+              const on = activeZones.includes(z.key);
+              return (
+                <button
+                  key={z.key}
+                  type="button"
+                  onClick={() => toggleZone(z.key)}
+                  className={`text-[11px] px-2 py-0.5 rounded border transition ${on ? "border-transparent text-background" : "border-border/60 text-muted-foreground bg-surface-2"}`}
+                  style={on ? { background: z.color } : undefined}
+                >
+                  {z.key}
+                </button>
+              );
+            })}
+            <Button size="sm" variant="ghost" className="h-6 text-[11px] ml-2" onClick={() => setSelectedZones(null)}>All</Button>
+            <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={() => setSelectedZones(["RS"])}>Only RS</Button>
+          </div>
           <div className="h-72">
             <ResponsiveContainer>
-              <LineChart data={chartData} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
+              <LineChart data={displayChartData} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
                 <CartesianGrid stroke="var(--color-grid)" strokeDasharray="3 3" />
                 <XAxis dataKey="t" stroke="var(--color-muted-foreground)" fontSize={11} minTickGap={28} />
                 <YAxis stroke="var(--color-muted-foreground)" fontSize={11} unit=" €" label={{ value: "€/MWh", angle: -90, position: "insideLeft", fill: "var(--color-muted-foreground)", fontSize: 10 }} />
                 <Tooltip contentStyle={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }} formatter={(v: number) => [`${typeof v === "number" ? v.toFixed(2) : v} €/MWh`, ""]} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                {ZONE_LINES.map(z => <Line key={z.key} dataKey={z.key} stroke={z.color} dot={false} strokeWidth={z.key === "RS" ? 2.4 : 1.2} connectNulls />)}
+                {ZONE_LINES.filter(z => activeZones.includes(z.key)).map(z => <Line key={z.key} dataKey={z.key} stroke={z.color} dot={false} strokeWidth={z.key === "RS" ? 2.4 : 1.2} connectNulls />)}
               </LineChart>
             </ResponsiveContainer>
           </div>
         </Panel>
+
 
         <div className="grid md:grid-cols-2 gap-4">
           <Panel title="Top 3 import opportunities">
