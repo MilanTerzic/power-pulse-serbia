@@ -105,6 +105,28 @@ function OverviewPage() {
     { key: "SI", color: "#94a3b8" },
   ];
 
+  const availableZones = useMemo(
+    () => ZONE_LINES.map(z => z.key).filter(k => (data?.prices ?? []).some(p => p.zone === k && p.data.points.length > 0)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data],
+  );
+  const [selectedZones, setSelectedZones] = useState<string[] | null>(null);
+  const activeZones = selectedZones ?? availableZones;
+  const toggleZone = (z: string) => {
+    const base = selectedZones ?? availableZones;
+    const next = base.includes(z) ? base.filter(x => x !== z) : [...base, z];
+    setSelectedZones(next);
+  };
+
+  // Downsample chart data only (KPIs still use full dataset above)
+  const MAX_POINTS = 1500;
+  const displayChartData = useMemo(() => {
+    if (chartData.length <= MAX_POINTS) return chartData;
+    const stride = Math.ceil(chartData.length / MAX_POINTS);
+    return chartData.filter((_, i) => i % stride === 0);
+  }, [chartData]);
+
+
   return (
     <>
       <TopBar
