@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo } from "react";
 import { getDashboardSnapshot } from "@/lib/data.functions";
 import { TopBar } from "@/components/top-bar";
 import { KPI } from "@/components/kpi";
@@ -9,6 +10,8 @@ import { DataBadge } from "@/components/data-badge";
 import { fmtPrice, fmtNum } from "@/lib/format";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { useDateRange } from "@/lib/date-range";
+import { ZONES } from "@/lib/markets";
+import { Button } from "@/components/ui/button";
 import { ZONES } from "@/lib/markets";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
