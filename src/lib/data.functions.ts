@@ -29,7 +29,7 @@ function expandRange(fromIn?: string, toIn?: string, dayIn?: string): string[] {
     const e = new Date(to + "T00:00:00Z").getTime();
     if (!Number.isFinite(s) || !Number.isFinite(e) || e < s) return [from];
     const out: string[] = [];
-    const max = Math.min(e, s + 30 * 86400_000); // cap at 31 days
+    const max = Math.min(e, s + 365 * 86400_000); // cap at ~1 year
     for (let t = s; t <= max; t += 86400_000) out.push(new Date(t).toISOString().slice(0, 10));
     return out;
   }
