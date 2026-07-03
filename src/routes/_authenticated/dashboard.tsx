@@ -12,7 +12,6 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { useDateRange } from "@/lib/date-range";
 import { ZONES } from "@/lib/markets";
 import { Button } from "@/components/ui/button";
-import { ZONES } from "@/lib/markets";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Overview — SEE Trading Desk" }] }),
