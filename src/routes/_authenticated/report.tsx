@@ -176,7 +176,12 @@ function TraderReportPage() {
       const filename = `trader-report-email-${report.period.from}-${report.period.to}.jpg`;
       const blob = await exportNodeToJpeg(reportExportRef.current, filename);
       const copied = await copyImageBlobToClipboard(blob);
-      toast.success(copied ? "JPEG downloaded and copied for email" : "JPEG downloaded for email");
+      openOutlookDraft(report, copied, filename);
+      toast.success(
+        copied
+          ? "Outlook draft opened. Click the email body and press Ctrl+V to insert the report image."
+          : "Outlook draft opened. The JPEG was downloaded; drag it into the email body if needed.",
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "JPEG export failed");
     } finally {
@@ -217,7 +222,7 @@ function TraderReportPage() {
                 disabled={!report || isExportingJpeg}
               >
                 <ImageDown className="w-3.5 h-3.5" />
-                {isExportingJpeg ? "Creating JPEG..." : "Email JPEG"}
+                {isExportingJpeg ? "Opening email..." : "Outlook Email"}
               </Button>
               <Button
                 size="sm"
@@ -676,10 +681,29 @@ async function copyImageBlobToClipboard(blob: Blob) {
   }
 }
 
+function openOutlookDraft(report: TraderReport, copied: boolean, filename: string) {
+  const subject = `Trader Report ${report.period.from} to ${report.period.to}`;
+  const body = copied
+    ? [
+        "Trader Report image has been copied to clipboard.",
+        "",
+        "Click in the email body and press Ctrl+V to insert it here.",
+      ].join("\r\n")
+    : [
+        `Trader Report JPEG has been downloaded as ${filename}.`,
+        "",
+        "Drag the downloaded image into the email body.",
+      ].join("\r\n");
+  window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 async function exportNodeToJpeg(node: HTMLElement, filename: string) {
   const width = Math.ceil(node.scrollWidth);
   const height = Math.ceil(node.scrollHeight);
   if (!width || !height) throw new Error("Report is empty; nothing to export");
+  const scale = Math.min(2, 12000 / width, 16000 / height);
+  const exportWidth = Math.max(1, Math.floor(width * scale));
+  const exportHeight = Math.max(1, Math.floor(height * scale));
 
   const clone = node.cloneNode(true) as HTMLElement;
   inlineComputedStyles(node, clone);
@@ -692,8 +716,10 @@ async function exportNodeToJpeg(node: HTMLElement, filename: string) {
 
   const serialized = new XMLSerializer().serializeToString(clone);
   const svg = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
-    `<foreignObject width="100%" height="100%">${serialized}</foreignObject>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${exportWidth}" height="${exportHeight}" viewBox="0 0 ${exportWidth} ${exportHeight}">`,
+    `<g transform="scale(${scale})">`,
+    `<foreignObject width="${width}" height="${height}">${serialized}</foreignObject>`,
+    `</g>`,
     `</svg>`,
   ].join("");
 
@@ -701,10 +727,9 @@ async function exportNodeToJpeg(node: HTMLElement, filename: string) {
   const svgUrl = URL.createObjectURL(svgBlob);
   try {
     const image = await loadImage(svgUrl);
-    const scale = Math.min(2, 12000 / width, 16000 / height);
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.floor(width * scale));
-    canvas.height = Math.max(1, Math.floor(height * scale));
+    canvas.width = exportWidth;
+    canvas.height = exportHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Could not prepare report JPEG");
     ctx.fillStyle = clone.style.background || "#0f1718";
