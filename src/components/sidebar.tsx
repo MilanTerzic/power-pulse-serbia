@@ -22,7 +22,7 @@ import { AUTH_KEY } from "@/lib/auth";
 
 const NAV = [
   { to: "/dashboard", label: "Overview", icon: LayoutDashboard },
-  { to: "/report", label: "Trader Report", icon: FileChartColumn },
+  { to: "/report", label: "CEA Report", icon: FileChartColumn },
   { to: "/prices", label: "Prices", icon: LineChart },
   { to: "/spreads", label: "Spreads", icon: ArrowLeftRight },
   { to: "/map", label: "Route Map", icon: Map },
@@ -57,7 +57,7 @@ export function Sidebar() {
             ⚡
           </div>
           <div>
-            <div className="text-sm font-semibold tracking-tight">SEE Trading</div>
+            <div className="text-sm font-semibold tracking-tight">CEA Power</div>
             <div className="text-[10px] text-muted-foreground tracking-wider uppercase">
               Serbia Desk
             </div>

@@ -36,7 +36,7 @@ import { Badge } from "@/components/ui/badge";
 import { fmtNum, fmtPct, fmtPrice, downloadCSV } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/report")({
-  head: () => ({ meta: [{ title: "Trader Report - SEE Trading Desk" }] }),
+  head: () => ({ meta: [{ title: "CEA Report - CEA Power Dashboard" }] }),
   component: TraderReportPage,
 });
 
@@ -169,7 +169,7 @@ function TraderReportPage() {
   return (
     <>
       <TopBar
-        title="Trader Report"
+        title="CEA Report"
         subtitle="Serbia desk market, physical-position, capacity and route-economics report"
         hideRange
         onRefresh={() => q.refetch()}

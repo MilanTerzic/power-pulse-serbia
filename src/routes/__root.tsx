@@ -77,24 +77,35 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Serbia Trade Hub is an electricity trading dashboard for import arbitrage and capacity resale opportunities." },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Serbia Trade Hub is an electricity trading dashboard for import arbitrage and capacity resale opportunities." },
+      { title: "CEA Power Dashboard" },
+      {
+        name: "description",
+        content:
+          "Energy-market analytics for electricity prices, renewable-energy capture rates, cross-border flows and project economics in Serbia and Southeast Europe.",
+      },
+      { name: "author", content: "Centar za energetske analize" },
+      { property: "og:title", content: "CEA Power Dashboard" },
+      {
+        property: "og:description",
+        content:
+          "Energy-market analytics for electricity prices, renewable-energy capture rates, cross-border flows and project economics in Serbia and Southeast Europe.",
+      },
       { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://dashboard.cea.org.rs/" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
-      { name: "twitter:title", content: "Lovable App" },
-      { name: "twitter:description", content: "Serbia Trade Hub is an electricity trading dashboard for import arbitrage and capacity resale opportunities." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/1e800083-1419-49ae-9ba6-c0e827fbe76c/id-preview-693dfd6d--e5ecd508-99ff-4049-b6c5-22e4d1388799.lovable.app-1780396688295.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/1e800083-1419-49ae-9ba6-c0e827fbe76c/id-preview-693dfd6d--e5ecd508-99ff-4049-b6c5-22e4d1388799.lovable.app-1780396688295.png" },
+      { name: "twitter:title", content: "CEA Power Dashboard" },
+      {
+        name: "twitter:description",
+        content:
+          "Energy-market analytics for electricity prices, renewable-energy capture rates, cross-border flows and project economics in Serbia and Southeast Europe.",
+      },
     ],
     links: [
       {
         rel: "stylesheet",
         href: appCss,
       },
+      { rel: "canonical", href: "https://dashboard.cea.org.rs/" },
     ],
   }),
   shellComponent: RootShell,
