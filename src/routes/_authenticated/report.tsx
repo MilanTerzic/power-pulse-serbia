@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ResponsiveContainer,
@@ -16,7 +16,8 @@ import {
   Bar,
   ReferenceLine,
 } from "recharts";
-import { Download, Printer, RefreshCw } from "lucide-react";
+import { Download, ImageDown, Printer, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 
 import { getTraderReport, type TraderReport } from "@/lib/report.functions";
 import {
@@ -63,7 +64,9 @@ const PRESETS: Array<{ key: ReportPreset; label: string }> = [
 function TraderReportPage() {
   const fn = useServerFn(getTraderReport);
   const { range, setRange } = useDateRange();
+  const reportExportRef = useRef<HTMLDivElement | null>(null);
   const [preset, setPreset] = useState<ReportPreset>("last7");
+  const [isExportingJpeg, setIsExportingJpeg] = useState(false);
   const [marketOn, setMarketOn] = useState<Record<string, boolean>>({
     RS: true,
     HU: true,
@@ -166,6 +169,21 @@ function TraderReportPage() {
     downloadCSV("trader-report-route-economics.csv", report.routeEconomics.rows as never);
   }
 
+  async function exportEmailJpeg() {
+    if (!report || !reportExportRef.current) return;
+    setIsExportingJpeg(true);
+    try {
+      const filename = `trader-report-email-${report.period.from}-${report.period.to}.jpg`;
+      const blob = await exportNodeToJpeg(reportExportRef.current, filename);
+      const copied = await copyImageBlobToClipboard(blob);
+      toast.success(copied ? "JPEG downloaded and copied for email" : "JPEG downloaded for email");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "JPEG export failed");
+    } finally {
+      setIsExportingJpeg(false);
+    }
+  }
+
   return (
     <>
       <TopBar
@@ -175,12 +193,12 @@ function TraderReportPage() {
         onRefresh={() => q.refetch()}
         lastRefresh={report?.generatedAt}
       />
-      <div className="p-6 space-y-5 report-print-root">
+      <div ref={reportExportRef} className="p-6 space-y-5 report-print-root">
         <Panel
           dense
           title="Report period"
           actions={
-            <div className="flex items-center gap-2 print:hidden">
+            <div className="flex items-center gap-2 print:hidden" data-jpeg-hidden="true">
               <Button
                 size="sm"
                 variant="ghost"
@@ -190,6 +208,16 @@ function TraderReportPage() {
               >
                 <Download className="w-3.5 h-3.5" />
                 CSV
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={exportEmailJpeg}
+                disabled={!report || isExportingJpeg}
+              >
+                <ImageDown className="w-3.5 h-3.5" />
+                {isExportingJpeg ? "Creating JPEG..." : "Email JPEG"}
               </Button>
               <Button
                 size="sm"
@@ -579,6 +607,115 @@ function LoadingReport() {
       </div>
     </Panel>
   );
+}
+
+function removeExportHidden(node: Element) {
+  node.querySelectorAll("[data-jpeg-hidden='true']").forEach((el) => el.remove());
+  node.querySelectorAll("*").forEach((el) => {
+    if (el.classList.contains("print:hidden")) el.remove();
+  });
+}
+
+function inlineComputedStyles(source: Element, clone: Element) {
+  const computed = window.getComputedStyle(source);
+  const ignored = new Set(["animation", "animation-name", "transition", "transition-property"]);
+  let cssText = "";
+  for (const property of Array.from(computed)) {
+    if (ignored.has(property)) continue;
+    cssText += `${property}:${computed.getPropertyValue(property)};`;
+  }
+  clone.setAttribute("style", `${clone.getAttribute("style") ?? ""};${cssText}`);
+
+  const sourceChildren = Array.from(source.children);
+  const cloneChildren = Array.from(clone.children);
+  for (let i = 0; i < sourceChildren.length; i += 1) {
+    if (cloneChildren[i]) inlineComputedStyles(sourceChildren[i], cloneChildren[i]);
+  }
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Could not render report JPEG"));
+    image.src = src;
+  });
+}
+
+function canvasToJpegBlob(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("Could not create report JPEG"));
+      },
+      "image/jpeg",
+      0.92,
+    );
+  });
+}
+
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function copyImageBlobToClipboard(blob: Blob) {
+  if (!navigator.clipboard || typeof ClipboardItem === "undefined") return false;
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function exportNodeToJpeg(node: HTMLElement, filename: string) {
+  const width = Math.ceil(node.scrollWidth);
+  const height = Math.ceil(node.scrollHeight);
+  if (!width || !height) throw new Error("Report is empty; nothing to export");
+
+  const clone = node.cloneNode(true) as HTMLElement;
+  inlineComputedStyles(node, clone);
+  removeExportHidden(clone);
+  clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+  clone.style.width = `${width}px`;
+  clone.style.minHeight = `${height}px`;
+  clone.style.boxSizing = "border-box";
+  clone.style.background = window.getComputedStyle(node).backgroundColor || "#0f1718";
+
+  const serialized = new XMLSerializer().serializeToString(clone);
+  const svg = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
+    `<foreignObject width="100%" height="100%">${serialized}</foreignObject>`,
+    `</svg>`,
+  ].join("");
+
+  const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const svgUrl = URL.createObjectURL(svgBlob);
+  try {
+    const image = await loadImage(svgUrl);
+    const scale = Math.min(2, 12000 / width, 16000 / height);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.floor(width * scale));
+    canvas.height = Math.max(1, Math.floor(height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Could not prepare report JPEG");
+    ctx.fillStyle = clone.style.background || "#0f1718";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const jpeg = await canvasToJpegBlob(canvas);
+    downloadBlob(filename, jpeg);
+    return jpeg;
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
 }
 
 function Empty({ text }: { text: string }) {
