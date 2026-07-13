@@ -171,13 +171,15 @@ function TraderReportPage() {
 
   async function exportJpegReport() {
     if (!report || !reportExportRef.current) return;
+    const filename = `trader-report-${report.period.from}-${report.period.to}.jpg`;
+    const downloadWindow = openJpegDownloadWindow(filename);
     setIsExportingJpeg(true);
     try {
-      const filename = `trader-report-${report.period.from}-${report.period.to}.jpg`;
       const blob = await createNodeJpeg(reportExportRef.current);
-      downloadBlob(filename, blob);
+      downloadBlob(filename, blob, downloadWindow);
       toast.success(`JPEG report downloaded: ${filename}`);
     } catch (error) {
+      showDownloadError(downloadWindow);
       toast.error(error instanceof Error ? error.message : "JPEG export failed");
     } finally {
       setIsExportingJpeg(false);
@@ -186,11 +188,12 @@ function TraderReportPage() {
 
   async function exportEmailJpeg() {
     if (!report || !reportExportRef.current) return;
+    const filename = `trader-report-${report.period.from}-${report.period.to}.jpg`;
+    const downloadWindow = openJpegDownloadWindow(filename);
     setIsExportingJpeg(true);
     try {
-      const filename = `trader-report-${report.period.from}-${report.period.to}.jpg`;
       const blob = await createNodeJpeg(reportExportRef.current);
-      downloadBlob(filename, blob);
+      downloadBlob(filename, blob, downloadWindow);
       const copied = await copyImageBlobToClipboard(blob);
       openOutlookDraft(report, copied, filename);
       toast.success(
@@ -199,6 +202,7 @@ function TraderReportPage() {
           : "JPEG downloaded. Outlook draft opened; drag the JPEG into the email body.",
       );
     } catch (error) {
+      showDownloadError(downloadWindow);
       toast.error(error instanceof Error ? error.message : "JPEG export failed");
     } finally {
       setIsExportingJpeg(false);
@@ -686,15 +690,73 @@ function canvasToJpegBlob(canvas: HTMLCanvasElement) {
   });
 }
 
-function downloadBlob(filename: string, blob: Blob) {
+function openJpegDownloadWindow(filename: string) {
+  const helper = window.open("", "_blank", "width=520,height=360");
+  if (!helper) return null;
+
+  helper.document.title = "Preparing JPEG report";
+  helper.document.body.innerHTML = [
+    '<div style="font-family: Inter, Arial, sans-serif; padding: 24px; color: #172324;">',
+    '<h1 style="font-size: 20px; margin: 0 0 12px;">Preparing JPEG report...</h1>',
+    `<p style="font-size: 14px; line-height: 1.5; margin: 0;">The download for <strong>${escapeHtml(filename)}</strong> will start automatically when the report image is ready.</p>`,
+    "</div>",
+  ].join("");
+
+  return helper;
+}
+
+function showDownloadError(helper: Window | null) {
+  if (!helper || helper.closed) return;
+  helper.document.title = "JPEG export failed";
+  helper.document.body.innerHTML = [
+    '<div style="font-family: Inter, Arial, sans-serif; padding: 24px; color: #172324;">',
+    '<h1 style="font-size: 20px; margin: 0 0 12px;">JPEG export failed</h1>',
+    '<p style="font-size: 14px; line-height: 1.5; margin: 0;">Please return to the dashboard and try again.</p>',
+    "</div>",
+  ].join("");
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[char] ?? char;
+  });
+}
+
+function downloadBlob(filename: string, blob: Blob, helper?: Window | null) {
   const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
+  const targetDocument = helper && !helper.closed ? helper.document : document;
+  const link = targetDocument.createElement("a");
   link.href = url;
   link.download = filename;
-  document.body.appendChild(link);
+  link.textContent = `Download ${filename}`;
+  link.style.cssText =
+    "display:inline-flex;margin-top:16px;padding:10px 14px;border-radius:8px;background:#0f766e;color:white;text-decoration:none;font-family:Inter,Arial,sans-serif;font-size:14px;";
+
+  if (helper && !helper.closed) {
+    helper.document.title = "JPEG report ready";
+    helper.document.body.innerHTML = [
+      '<div style="font-family: Inter, Arial, sans-serif; padding: 24px; color: #172324;">',
+      '<h1 style="font-size: 20px; margin: 0 0 12px;">JPEG report ready</h1>',
+      '<p style="font-size: 14px; line-height: 1.5; margin: 0;">The download should start automatically. If it does not, use the button below.</p>',
+      "</div>",
+    ].join("");
+    helper.document.body.querySelector("div")?.appendChild(link);
+    helper.focus();
+  } else {
+    link.style.display = "none";
+    document.body.appendChild(link);
+  }
+
   link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  if (!(helper && !helper.closed)) link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 async function copyImageBlobToClipboard(blob: Blob) {
