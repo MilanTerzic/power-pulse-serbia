@@ -169,18 +169,34 @@ function TraderReportPage() {
     downloadCSV("trader-report-route-economics.csv", report.routeEconomics.rows as never);
   }
 
+  async function exportJpegReport() {
+    if (!report || !reportExportRef.current) return;
+    setIsExportingJpeg(true);
+    try {
+      const filename = `trader-report-${report.period.from}-${report.period.to}.jpg`;
+      const blob = await createNodeJpeg(reportExportRef.current);
+      downloadBlob(filename, blob);
+      toast.success(`JPEG report downloaded: ${filename}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "JPEG export failed");
+    } finally {
+      setIsExportingJpeg(false);
+    }
+  }
+
   async function exportEmailJpeg() {
     if (!report || !reportExportRef.current) return;
     setIsExportingJpeg(true);
     try {
-      const filename = `trader-report-email-${report.period.from}-${report.period.to}.jpg`;
-      const blob = await exportNodeToJpeg(reportExportRef.current, filename);
+      const filename = `trader-report-${report.period.from}-${report.period.to}.jpg`;
+      const blob = await createNodeJpeg(reportExportRef.current);
+      downloadBlob(filename, blob);
       const copied = await copyImageBlobToClipboard(blob);
       openOutlookDraft(report, copied, filename);
       toast.success(
         copied
-          ? "Outlook draft opened. Click the email body and press Ctrl+V to insert the report image."
-          : "Outlook draft opened. The JPEG was downloaded; drag it into the email body if needed.",
+          ? "JPEG downloaded and copied. Outlook draft opened; click the body and press Ctrl+V."
+          : "JPEG downloaded. Outlook draft opened; drag the JPEG into the email body.",
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "JPEG export failed");
@@ -218,11 +234,21 @@ function TraderReportPage() {
                 size="sm"
                 variant="outline"
                 className="gap-1.5"
+                onClick={exportJpegReport}
+                disabled={!report || isExportingJpeg}
+              >
+                <ImageDown className="w-3.5 h-3.5" />
+                {isExportingJpeg ? "Creating JPEG..." : "JPEG"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
                 onClick={exportEmailJpeg}
                 disabled={!report || isExportingJpeg}
               >
                 <ImageDown className="w-3.5 h-3.5" />
-                {isExportingJpeg ? "Opening email..." : "Outlook Email"}
+                {isExportingJpeg ? "Opening email..." : "Email JPEG"}
               </Button>
               <Button
                 size="sm"
@@ -668,7 +694,7 @@ function downloadBlob(filename: string, blob: Blob) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 async function copyImageBlobToClipboard(blob: Blob) {
@@ -697,7 +723,7 @@ function openOutlookDraft(report: TraderReport, copied: boolean, filename: strin
   window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
-async function exportNodeToJpeg(node: HTMLElement, filename: string) {
+async function createNodeJpeg(node: HTMLElement) {
   const width = Math.ceil(node.scrollWidth);
   const height = Math.ceil(node.scrollHeight);
   if (!width || !height) throw new Error("Report is empty; nothing to export");
@@ -735,9 +761,7 @@ async function exportNodeToJpeg(node: HTMLElement, filename: string) {
     ctx.fillStyle = clone.style.background || "#0f1718";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const jpeg = await canvasToJpegBlob(canvas);
-    downloadBlob(filename, jpeg);
-    return jpeg;
+    return canvasToJpegBlob(canvas);
   } finally {
     URL.revokeObjectURL(svgUrl);
   }
