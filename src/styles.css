@@ -81,3 +81,65 @@
   }
   .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 }
+
+@media print {
+  :root {
+    color-scheme: light;
+    --background: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #f6f8fa;
+    --foreground: #111827;
+    --muted-foreground: #4b5563;
+    --border: #d1d5db;
+    --grid: #d1d5db;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  aside,
+  .print\:hidden,
+  button,
+  input,
+  select {
+    display: none !important;
+  }
+
+  .report-print-root {
+    padding: 0 !important;
+  }
+
+  [class*="sticky"] {
+    position: static !important;
+  }
+
+  [class*="bg-surface"],
+  [class*="bg-card"],
+  [class*="bg-background"] {
+    background: #ffffff !important;
+  }
+
+  .border,
+  [class*="border-"] {
+    border-color: #d1d5db !important;
+  }
+
+  table {
+    page-break-inside: auto;
+  }
+
+  tr,
+  .rounded,
+  [class*="rounded"] {
+    break-inside: avoid;
+  }
+
+  h1,
+  h2,
+  h3,
+  [class*="CardTitle"] {
+    break-after: avoid;
+  }
+}

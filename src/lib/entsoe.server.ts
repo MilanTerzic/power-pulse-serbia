@@ -1,19 +1,25 @@
 // ENTSO-E Transparency Platform client — server-only.
 // Mirrors fetchers from the uploaded Python app.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { ZONES, ENTSOE_DOCUMENT_TYPES, MARKET_AGREEMENT_TYPES, type ZoneCode, type ProductType } from "./markets";
+import {
+  ZONES,
+  ENTSOE_DOCUMENT_TYPES,
+  MARKET_AGREEMENT_TYPES,
+  type ZoneCode,
+  type ProductType,
+} from "./markets";
 
 const API_BASE = "https://web-api.tp.entsoe.eu/api";
 const DEFAULT_TTL = 1800;
 // Per-source TTLs (seconds).
 const TTL = {
-  da_today: 30 * 60,         // today / future: refresh every 30 min
-  da_past: 7 * 24 * 3600,    // past days: immutable, keep 7 days
+  da_today: 30 * 60, // today / future: refresh every 30 min
+  da_past: 7 * 24 * 3600, // past days: immutable, keep 7 days
   flow_today: 30 * 60,
   flow_past: 7 * 24 * 3600,
   cap_today: 30 * 60,
   cap_past: 7 * 24 * 3600,
-  outages: 60 * 60,          // 1h
+  outages: 60 * 60, // 1h
   loadgen_today: 30 * 60,
   loadgen_past: 24 * 3600,
 } as const;
@@ -44,12 +50,12 @@ function ymdh(d: Date): string {
 function cetOffsetHours(dayISO: string): number {
   const noonUtc = new Date(dayISO + "T12:00:00Z");
   const fmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/Belgrade", timeZoneName: "shortOffset",
+    timeZone: "Europe/Belgrade",
+    timeZoneName: "shortOffset",
   });
-  const part = fmt.formatToParts(noonUtc).find(p => p.type === "timeZoneName")?.value ?? "GMT+1";
+  const part = fmt.formatToParts(noonUtc).find((p) => p.type === "timeZoneName")?.value ?? "GMT+1";
   const m = /([+-]?\d+)/.exec(part);
   return m ? parseInt(m[1], 10) : 1;
-
 }
 
 export interface FetchResult<T> {
@@ -77,10 +83,14 @@ async function cacheGetStale<T>(key: string): Promise<T | null> {
     .select("payload")
     .eq("key", key)
     .maybeSingle();
-  return data ? data.payload as T : null;
+  return data ? (data.payload as T) : null;
 }
 
-async function staleCacheOrEmpty<T>(key: string, emptyData: T, reason: string): Promise<FetchResult<T>> {
+async function staleCacheOrEmpty<T>(
+  key: string,
+  emptyData: T,
+  reason: string,
+): Promise<FetchResult<T>> {
   const cached = await cacheGetStale<T>(key);
   if (cached) {
     return {
@@ -95,7 +105,10 @@ async function staleCacheOrEmpty<T>(key: string, emptyData: T, reason: string): 
 
 async function cacheSet(key: string, payload: unknown, ttl = DEFAULT_TTL) {
   await supabaseAdmin.from("api_cache").upsert({
-    key, payload: payload as never, fetched_at: new Date().toISOString(), ttl_seconds: ttl,
+    key,
+    payload: payload as never,
+    fetched_at: new Date().toISOString(),
+    ttl_seconds: ttl,
   });
 }
 
@@ -113,16 +126,18 @@ async function entsoeRaw(params: Record<string, string>): Promise<string> {
 }
 
 // --- Tiny XML utilities -----------------------------------------------------
-function stripNs(xml: string) { return xml.replace(/<\/?[\w:-]+:/g, m => m.replace(/[\w-]+:/, "")); }
+function stripNs(xml: string) {
+  return xml.replace(/<\/?[\w:-]+:/g, (m) => m.replace(/[\w-]+:/, ""));
+}
 function tagAll(xml: string, tag: string): string[] {
-  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\/${tag}>`, "g");
+  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, "g");
   const out: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml))) out.push(m[1]);
   return out;
 }
 function tagOne(xml: string, tag: string): string | null {
-  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\/${tag}>`);
+  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`);
   const m = re.exec(xml);
   return m ? m[1].trim() : null;
 }
@@ -140,7 +155,9 @@ function parseTimeSeriesHourly(xml: string): Array<{ ts: string; value: number }
       if (!start) continue;
       const startMs = Date.parse(start);
       const resolution = tagOne(period, "resolution") ?? "PT60M";
-      const stepMin = /PT(\d+)M/.exec(resolution)?.[1] ? parseInt(/PT(\d+)M/.exec(resolution)![1], 10) : 60;
+      const stepMin = /PT(\d+)M/.exec(resolution)?.[1]
+        ? parseInt(/PT(\d+)M/.exec(resolution)![1], 10)
+        : 60;
       for (const pt of tagAll(period, "Point")) {
         const pos = parseInt(tagOne(pt, "position") ?? "1", 10);
         const valS = tagOne(pt, "price.amount") ?? tagOne(pt, "quantity") ?? tagOne(pt, "value");
@@ -155,10 +172,60 @@ function parseTimeSeriesHourly(xml: string): Array<{ ts: string; value: number }
   // dedupe by ts (keep last)
   const byTs = new Map<string, number>();
   for (const r of out) byTs.set(r.ts, r.value);
-  return [...byTs.entries()].map(([ts, value]) => ({ ts, value })).sort((a, b) => a.ts.localeCompare(b.ts));
+  return [...byTs.entries()]
+    .map(([ts, value]) => ({ ts, value }))
+    .sort((a, b) => a.ts.localeCompare(b.ts));
 }
 
-function parseAllocationSummary(xml: string): { price_eur_mwh: number | null; quantity_mw: number | null } {
+function parseResolutionMinutes(resolution: string | null): number {
+  const m = /^PT(?:(\d+)H)?(?:(\d+)M)?$/.exec(resolution ?? "");
+  if (!m) return 60;
+  const h = m[1] ? parseInt(m[1], 10) : 0;
+  const min = m[2] ? parseInt(m[2], 10) : 0;
+  return h * 60 + min || 60;
+}
+
+function parseTimeSeriesIntervals(xml: string): Array<{
+  ts: string;
+  value: number;
+  durationMinutes: number;
+  productionType?: string;
+  mRID?: string;
+}> {
+  const clean = stripNs(xml);
+  const out: Array<{
+    ts: string;
+    value: number;
+    durationMinutes: number;
+    productionType?: string;
+    mRID?: string;
+  }> = [];
+  for (const ts of tagAll(clean, "TimeSeries")) {
+    const productionType = tagOne(ts, "psrType") ?? undefined;
+    const mRID = tagOne(ts, "mRID") ?? undefined;
+    for (const period of tagAll(ts, "Period")) {
+      const start = tagOne(period, "start");
+      if (!start) continue;
+      const startMs = Date.parse(start);
+      const durationMinutes = parseResolutionMinutes(tagOne(period, "resolution"));
+      for (const pt of tagAll(period, "Point")) {
+        const pos = parseInt(tagOne(pt, "position") ?? "1", 10);
+        const valS = tagOne(pt, "price.amount") ?? tagOne(pt, "quantity") ?? tagOne(pt, "value");
+        if (valS == null) continue;
+        const value = parseFloat(valS);
+        if (!Number.isFinite(value)) continue;
+        const ts2 = new Date(startMs + (pos - 1) * durationMinutes * 60_000).toISOString();
+        out.push({ ts: ts2, value, durationMinutes, productionType, mRID });
+      }
+    }
+  }
+  return out.sort((a, b) => a.ts.localeCompare(b.ts));
+}
+
+function parseAllocationSummary(xml: string): {
+  price_eur_mwh: number | null;
+  quantity_mw: number | null;
+} {
   const clean = stripNs(xml);
   const prices: number[] = [];
   const quantities: number[] = [];
@@ -176,9 +243,21 @@ function parseAllocationSummary(xml: string): { price_eur_mwh: number | null; qu
 }
 
 // --- Public fetchers --------------------------------------------------------
-export interface PriceSeries { zone: ZoneCode; points: Array<{ ts: string; price: number }>; }
+export interface PriceSeries {
+  zone: ZoneCode;
+  points: Array<{ ts: string; price: number }>;
+}
+export interface IntervalPriceSeries {
+  zone: ZoneCode;
+  points: Array<{ ts: string; price: number; durationMinutes: number }>;
+}
 
-export async function fetchDayAheadPrices(zone: ZoneCode, dayISO: string, demo = false, force = false): Promise<FetchResult<PriceSeries>> {
+export async function fetchDayAheadPrices(
+  zone: ZoneCode,
+  dayISO: string,
+  demo = false,
+  force = false,
+): Promise<FetchResult<PriceSeries>> {
   const key = `da_prices:${zone}:${dayISO}`;
   const emptyData: PriceSeries = { zone, points: [] };
   if (!force) {
@@ -204,24 +283,87 @@ export async function fetchDayAheadPrices(zone: ZoneCode, dayISO: string, demo =
     const startMs = start.getTime();
     const endMs = end.getTime();
     const series = parseTimeSeriesHourly(xml)
-      .filter(p => {
+      .filter((p) => {
         const t = Date.parse(p.ts);
         return t >= startMs && t < endMs;
       })
-      .map(p => ({ ts: p.ts, price: p.value }));
+      .map((p) => ({ ts: p.ts, price: p.value }));
     if (!series.length) return staleCacheOrEmpty(key, emptyData, "no_data");
     const payload: PriceSeries = { zone, points: series };
     await cacheSet(key, payload, ttlFor(TTL.da_today, TTL.da_past, dayISO));
     return { data: payload, source: "live", fetched_at: new Date().toISOString() };
-
   } catch (e) {
     const reason = e instanceof Error ? e.message : "error";
     return staleCacheOrEmpty(key, emptyData, reason);
   }
 }
 
-export interface FlowSeries { from: ZoneCode; to: ZoneCode; points: Array<{ ts: string; mw: number }>; }
-export async function fetchPhysicalFlows(from: ZoneCode, to: ZoneCode, dayISO: string, demo = false, force = false): Promise<FetchResult<FlowSeries>> {
+export async function fetchDayAheadPricesRange(
+  zone: ZoneCode,
+  fromISO: string,
+  toISO: string,
+  demo = false,
+  force = false,
+): Promise<FetchResult<IntervalPriceSeries>> {
+  const key = `da_prices_range:v1:${zone}:${fromISO}:${toISO}`;
+  const emptyData: IntervalPriceSeries = { zone, points: [] };
+  const ttl = toISO < new Date().toISOString().slice(0, 10) ? TTL.da_past : TTL.da_today;
+  if (!force) {
+    const cached = await cacheGet<IntervalPriceSeries>(key, ttl);
+    if (cached) return { data: cached, source: "cache", fetched_at: new Date().toISOString() };
+  }
+  if (demo) return staleCacheOrEmpty(key, emptyData, "demo_disabled");
+  if (!token()) return staleCacheOrEmpty(key, emptyData, "no_token");
+  try {
+    const startOffsetH = cetOffsetHours(fromISO);
+    const start = new Date(Date.parse(fromISO + "T00:00:00Z") - startOffsetH * 3600_000);
+    const afterTo = new Date(Date.parse(toISO + "T00:00:00Z") + 24 * 3600_000)
+      .toISOString()
+      .slice(0, 10);
+    const endOffsetH = cetOffsetHours(afterTo);
+    const end = new Date(Date.parse(afterTo + "T00:00:00Z") - endOffsetH * 3600_000);
+    const xml = await entsoeRaw({
+      documentType: ENTSOE_DOCUMENT_TYPES.day_ahead_prices,
+      in_Domain: ZONES[zone].eic,
+      out_Domain: ZONES[zone].eic,
+      periodStart: ymdh(start),
+      periodEnd: ymdh(end),
+    });
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    const points = parseTimeSeriesIntervals(xml)
+      .filter((p) => {
+        const t = Date.parse(p.ts);
+        return t >= startMs && t < endMs;
+      })
+      .map((p) => ({ ts: p.ts, price: p.value, durationMinutes: p.durationMinutes }));
+    if (!points.length) return staleCacheOrEmpty(key, emptyData, "no_data");
+    const payload = { zone, points };
+    await cacheSet(key, payload, ttl);
+    return { data: payload, source: "live", fetched_at: new Date().toISOString() };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : "error";
+    return staleCacheOrEmpty(key, emptyData, reason);
+  }
+}
+
+export interface FlowSeries {
+  from: ZoneCode;
+  to: ZoneCode;
+  points: Array<{ ts: string; mw: number }>;
+}
+export interface IntervalFlowSeries {
+  from: ZoneCode;
+  to: ZoneCode;
+  points: Array<{ ts: string; mw: number; durationMinutes: number }>;
+}
+export async function fetchPhysicalFlows(
+  from: ZoneCode,
+  to: ZoneCode,
+  dayISO: string,
+  demo = false,
+  force = false,
+): Promise<FetchResult<FlowSeries>> {
   const key = `flow:${from}:${to}:${dayISO}`;
   const emptyData: FlowSeries = { from, to, points: [] };
   if (!force) {
@@ -244,13 +386,65 @@ export async function fetchPhysicalFlows(from: ZoneCode, to: ZoneCode, dayISO: s
     const startMs = start.getTime();
     const endMs = end.getTime();
     const series = parseTimeSeriesHourly(xml)
-      .filter(p => { const t = Date.parse(p.ts); return t >= startMs && t < endMs; })
-      .map(p => ({ ts: p.ts, mw: p.value }));
+      .filter((p) => {
+        const t = Date.parse(p.ts);
+        return t >= startMs && t < endMs;
+      })
+      .map((p) => ({ ts: p.ts, mw: p.value }));
     if (!series.length) return staleCacheOrEmpty(key, emptyData, "no_data");
     const payload: FlowSeries = { from, to, points: series };
     await cacheSet(key, payload, ttlFor(TTL.flow_today, TTL.flow_past, dayISO));
     return { data: payload, source: "live", fetched_at: new Date().toISOString() };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : "error";
+    return staleCacheOrEmpty(key, emptyData, reason);
+  }
+}
 
+export async function fetchPhysicalFlowsRange(
+  from: ZoneCode,
+  to: ZoneCode,
+  fromISO: string,
+  toISO: string,
+  demo = false,
+  force = false,
+): Promise<FetchResult<IntervalFlowSeries>> {
+  const key = `flow_range:v1:${from}:${to}:${fromISO}:${toISO}`;
+  const emptyData: IntervalFlowSeries = { from, to, points: [] };
+  const ttl = toISO < new Date().toISOString().slice(0, 10) ? TTL.flow_past : TTL.flow_today;
+  if (!force) {
+    const cached = await cacheGet<IntervalFlowSeries>(key, ttl);
+    if (cached) return { data: cached, source: "cache", fetched_at: new Date().toISOString() };
+  }
+  if (demo) return staleCacheOrEmpty(key, emptyData, "demo_disabled");
+  if (!token()) return staleCacheOrEmpty(key, emptyData, "no_token");
+  try {
+    const startOffsetH = cetOffsetHours(fromISO);
+    const start = new Date(Date.parse(fromISO + "T00:00:00Z") - startOffsetH * 3600_000);
+    const afterTo = new Date(Date.parse(toISO + "T00:00:00Z") + 24 * 3600_000)
+      .toISOString()
+      .slice(0, 10);
+    const endOffsetH = cetOffsetHours(afterTo);
+    const end = new Date(Date.parse(afterTo + "T00:00:00Z") - endOffsetH * 3600_000);
+    const xml = await entsoeRaw({
+      documentType: ENTSOE_DOCUMENT_TYPES.physical_flows,
+      in_Domain: ZONES[to].eic,
+      out_Domain: ZONES[from].eic,
+      periodStart: ymdh(start),
+      periodEnd: ymdh(end),
+    });
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    const points = parseTimeSeriesIntervals(xml)
+      .filter((p) => {
+        const t = Date.parse(p.ts);
+        return t >= startMs && t < endMs;
+      })
+      .map((p) => ({ ts: p.ts, mw: p.value, durationMinutes: p.durationMinutes }));
+    if (!points.length) return staleCacheOrEmpty(key, emptyData, "no_data");
+    const payload = { from, to, points };
+    await cacheSet(key, payload, ttl);
+    return { data: payload, source: "live", fetched_at: new Date().toISOString() };
   } catch (e) {
     const reason = e instanceof Error ? e.message : "error";
     return staleCacheOrEmpty(key, emptyData, reason);
@@ -258,20 +452,32 @@ export async function fetchPhysicalFlows(from: ZoneCode, to: ZoneCode, dayISO: s
 }
 
 export interface CapacityRow {
-  from: ZoneCode; to: ZoneCode; product: ProductType;
-  price_eur_mwh: number | null; offered_mw: number | null; allocated_mw: number | null;
+  from: ZoneCode;
+  to: ZoneCode;
+  product: ProductType;
+  price_eur_mwh: number | null;
+  offered_mw: number | null;
+  allocated_mw: number | null;
   unit_warning?: string;
 }
 export async function fetchExplicitAllocation(
-  from: ZoneCode, to: ZoneCode, product: ProductType, dayISO: string, demo = false, force = false,
+  from: ZoneCode,
+  to: ZoneCode,
+  product: ProductType,
+  dayISO: string,
+  demo = false,
+  force = false,
 ): Promise<FetchResult<CapacityRow>> {
   const key = `cap:${from}:${to}:${product}:${dayISO}`;
   const emptyData: CapacityRow = {
-    from, to, product,
+    from,
+    to,
+    product,
     price_eur_mwh: null,
     offered_mw: null,
     allocated_mw: null,
-    unit_warning: product !== "daily" ? "Monthly/annual A25 prices may be totals depending on TSO" : undefined,
+    unit_warning:
+      product !== "daily" ? "Monthly/annual A25 prices may be totals depending on TSO" : undefined,
   };
   const t = token();
   if (!force) {
@@ -315,7 +521,10 @@ export async function fetchExplicitAllocation(
       price_eur_mwh: allocated.price_eur_mwh,
       offered_mw: offeredMw,
       allocated_mw: allocated.quantity_mw,
-      unit_warning: product !== "daily" ? "Monthly/annual A25 prices may be totals depending on TSO" : undefined,
+      unit_warning:
+        product !== "daily"
+          ? "Monthly/annual A25 prices may be totals depending on TSO"
+          : undefined,
     };
     await cacheSet(key, row, ttlFor(TTL.cap_today, TTL.cap_past, dayISO));
     return { data: row, source: "live", fetched_at: new Date().toISOString() };
@@ -325,8 +534,19 @@ export async function fetchExplicitAllocation(
   }
 }
 
-export interface OutageRow { unit: string; zone: ZoneCode; mw: number; type: string; start: string; end: string; }
-export async function fetchOutages(zone: ZoneCode, dayISO: string, demo = false): Promise<FetchResult<OutageRow[]>> {
+export interface OutageRow {
+  unit: string;
+  zone: ZoneCode;
+  mw: number;
+  type: string;
+  start: string;
+  end: string;
+}
+export async function fetchOutages(
+  zone: ZoneCode,
+  dayISO: string,
+  demo = false,
+): Promise<FetchResult<OutageRow[]>> {
   const key = `outages:${zone}:${dayISO}`;
   const emptyData: OutageRow[] = [];
   const cached = await cacheGet<OutageRow[]>(key, DEFAULT_TTL);
@@ -336,13 +556,171 @@ export async function fetchOutages(zone: ZoneCode, dayISO: string, demo = false)
   return staleCacheOrEmpty(key, emptyData, "outage_parser_not_implemented");
 }
 
-export interface LoadGenPoint { ts: string; load_mw: number; gen_mw: number; }
-export async function fetchLoadGen(zone: ZoneCode, dayISO: string, demo = false): Promise<FetchResult<LoadGenPoint[]>> {
+export interface LoadGenPoint {
+  ts: string;
+  load_mw: number;
+  gen_mw: number;
+}
+export interface ActualLoadPoint {
+  ts: string;
+  load_mw: number;
+  durationMinutes: number;
+}
+export interface ActualGenerationPoint {
+  ts: string;
+  gen_mw: number;
+  durationMinutes: number;
+  production?: Record<string, number>;
+}
+
+export async function fetchActualLoadRange(
+  zone: ZoneCode,
+  fromISO: string,
+  toISO: string,
+  demo = false,
+  force = false,
+): Promise<FetchResult<{ zone: ZoneCode; points: ActualLoadPoint[] }>> {
+  const key = `actual_load_range:v1:${zone}:${fromISO}:${toISO}`;
+  const emptyData = { zone, points: [] as ActualLoadPoint[] };
+  const ttl = toISO < new Date().toISOString().slice(0, 10) ? TTL.loadgen_past : TTL.loadgen_today;
+  if (!force) {
+    const cached = await cacheGet<typeof emptyData>(key, ttl);
+    if (cached) return { data: cached, source: "cache", fetched_at: new Date().toISOString() };
+  }
+  if (demo) return staleCacheOrEmpty(key, emptyData, "demo_disabled");
+  if (!token()) return staleCacheOrEmpty(key, emptyData, "no_token");
+  try {
+    const startOffsetH = cetOffsetHours(fromISO);
+    const start = new Date(Date.parse(fromISO + "T00:00:00Z") - startOffsetH * 3600_000);
+    const afterTo = new Date(Date.parse(toISO + "T00:00:00Z") + 24 * 3600_000)
+      .toISOString()
+      .slice(0, 10);
+    const endOffsetH = cetOffsetHours(afterTo);
+    const end = new Date(Date.parse(afterTo + "T00:00:00Z") - endOffsetH * 3600_000);
+    const xml = await entsoeRaw({
+      documentType: ENTSOE_DOCUMENT_TYPES.system_total_load,
+      processType: "A16",
+      outBiddingZone_Domain: ZONES[zone].eic,
+      periodStart: ymdh(start),
+      periodEnd: ymdh(end),
+    });
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    const byTs = new Map<string, ActualLoadPoint>();
+    for (const p of parseTimeSeriesIntervals(xml)) {
+      const t = Date.parse(p.ts);
+      if (t < startMs || t >= endMs) continue;
+      byTs.set(p.ts, { ts: p.ts, load_mw: p.value, durationMinutes: p.durationMinutes });
+    }
+    const payload = { zone, points: [...byTs.values()].sort((a, b) => a.ts.localeCompare(b.ts)) };
+    if (!payload.points.length) return staleCacheOrEmpty(key, emptyData, "no_data");
+    await cacheSet(key, payload, ttl);
+    return { data: payload, source: "live", fetched_at: new Date().toISOString() };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : "error";
+    return staleCacheOrEmpty(key, emptyData, reason);
+  }
+}
+
+export async function fetchActualGenerationRange(
+  zone: ZoneCode,
+  fromISO: string,
+  toISO: string,
+  demo = false,
+  force = false,
+): Promise<FetchResult<{ zone: ZoneCode; points: ActualGenerationPoint[] }>> {
+  const key = `actual_generation_range:v1:${zone}:${fromISO}:${toISO}`;
+  const emptyData = { zone, points: [] as ActualGenerationPoint[] };
+  const ttl = toISO < new Date().toISOString().slice(0, 10) ? TTL.loadgen_past : TTL.loadgen_today;
+  if (!force) {
+    const cached = await cacheGet<typeof emptyData>(key, ttl);
+    if (cached) return { data: cached, source: "cache", fetched_at: new Date().toISOString() };
+  }
+  if (demo) return staleCacheOrEmpty(key, emptyData, "demo_disabled");
+  if (!token()) return staleCacheOrEmpty(key, emptyData, "no_token");
+  try {
+    const startOffsetH = cetOffsetHours(fromISO);
+    const start = new Date(Date.parse(fromISO + "T00:00:00Z") - startOffsetH * 3600_000);
+    const afterTo = new Date(Date.parse(toISO + "T00:00:00Z") + 24 * 3600_000)
+      .toISOString()
+      .slice(0, 10);
+    const endOffsetH = cetOffsetHours(afterTo);
+    const end = new Date(Date.parse(afterTo + "T00:00:00Z") - endOffsetH * 3600_000);
+    const xml = await entsoeRaw({
+      documentType: ENTSOE_DOCUMENT_TYPES.actual_generation,
+      processType: "A16",
+      in_Domain: ZONES[zone].eic,
+      periodStart: ymdh(start),
+      periodEnd: ymdh(end),
+    });
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    const buckets = new Map<string, { durationMinutes: number; production: Map<string, number> }>();
+    for (const p of parseTimeSeriesIntervals(xml)) {
+      const t = Date.parse(p.ts);
+      if (t < startMs || t >= endMs) continue;
+      const productionType = p.productionType ?? "unclassified";
+      const cur = buckets.get(p.ts) ?? {
+        durationMinutes: p.durationMinutes,
+        production: new Map<string, number>(),
+      };
+      cur.production.set(productionType, (cur.production.get(productionType) ?? 0) + p.value);
+      cur.durationMinutes = Math.min(cur.durationMinutes, p.durationMinutes);
+      buckets.set(p.ts, cur);
+    }
+    const points: ActualGenerationPoint[] = [...buckets.entries()]
+      .map(([ts, b]) => {
+        const production = Object.fromEntries(b.production.entries());
+        const techKeys = Object.keys(production).filter((k) => k !== "unclassified" && k !== "B00");
+        const useKeys = techKeys.length ? techKeys : Object.keys(production);
+        const gen_mw = useKeys.reduce((acc, k) => acc + (production[k] ?? 0), 0);
+        return { ts, gen_mw, durationMinutes: b.durationMinutes, production };
+      })
+      .sort((a, b) => a.ts.localeCompare(b.ts));
+    const payload = { zone, points };
+    if (!payload.points.length) return staleCacheOrEmpty(key, emptyData, "no_data");
+    await cacheSet(key, payload, ttl);
+    return { data: payload, source: "live", fetched_at: new Date().toISOString() };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : "error";
+    return staleCacheOrEmpty(key, emptyData, reason);
+  }
+}
+
+export async function fetchLoadGen(
+  zone: ZoneCode,
+  dayISO: string,
+  demo = false,
+): Promise<FetchResult<LoadGenPoint[]>> {
   const key = `loadgen:${zone}:${dayISO}`;
   const emptyData: LoadGenPoint[] = [];
   const cached = await cacheGet<LoadGenPoint[]>(key, DEFAULT_TTL);
   if (cached) return { data: cached, source: "cache", fetched_at: new Date().toISOString() };
   if (demo) return staleCacheOrEmpty(key, emptyData, "demo_disabled");
   if (!token()) return staleCacheOrEmpty(key, emptyData, "no_token");
-  return staleCacheOrEmpty(key, emptyData, "loadgen_parser_not_implemented");
+  const [load, gen] = await Promise.all([
+    fetchActualLoadRange(zone, dayISO, dayISO),
+    fetchActualGenerationRange(zone, dayISO, dayISO),
+  ]);
+  const genByTs = new Map(gen.data.points.map((p) => [p.ts, p.gen_mw]));
+  const rows = load.data.points
+    .filter((p) => genByTs.has(p.ts))
+    .map((p) => ({
+      ts: p.ts,
+      load_mw: p.load_mw,
+      gen_mw: genByTs.get(p.ts)!,
+    }));
+  if (!rows.length || !gen.data.points.length) {
+    return staleCacheOrEmpty(
+      key,
+      emptyData,
+      rows.length ? "generation_unavailable" : "load_unavailable",
+    );
+  }
+  await cacheSet(key, rows, ttlFor(TTL.loadgen_today, TTL.loadgen_past, dayISO));
+  return {
+    data: rows,
+    source: load.source === "live" || gen.source === "live" ? "live" : "cache",
+    fetched_at: new Date().toISOString(),
+  };
 }

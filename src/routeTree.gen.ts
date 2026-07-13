@@ -16,6 +16,7 @@ import { Route as AuthenticatedWeatherRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedUtilizationRouteImport } from './routes/_authenticated/utilization'
 import { Route as AuthenticatedSpreadsRouteImport } from './routes/_authenticated/spreads'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedReportRouteImport } from './routes/_authenticated/report'
 import { Route as AuthenticatedPricesRouteImport } from './routes/_authenticated/prices'
 import { Route as AuthenticatedOutagesRouteImport } from './routes/_authenticated/outages'
 import { Route as AuthenticatedMapRouteImport } from './routes/_authenticated/map'
@@ -60,6 +61,11 @@ const AuthenticatedSpreadsRoute = AuthenticatedSpreadsRouteImport.update({
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedReportRoute = AuthenticatedReportRouteImport.update({
+  id: '/report',
+  path: '/report',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedPricesRoute = AuthenticatedPricesRouteImport.update({
@@ -126,6 +132,7 @@ export interface FileRoutesByFullPath {
   '/map': typeof AuthenticatedMapRoute
   '/outages': typeof AuthenticatedOutagesRoute
   '/prices': typeof AuthenticatedPricesRoute
+  '/report': typeof AuthenticatedReportRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/spreads': typeof AuthenticatedSpreadsRoute
   '/utilization': typeof AuthenticatedUtilizationRoute
@@ -144,6 +151,7 @@ export interface FileRoutesByTo {
   '/map': typeof AuthenticatedMapRoute
   '/outages': typeof AuthenticatedOutagesRoute
   '/prices': typeof AuthenticatedPricesRoute
+  '/report': typeof AuthenticatedReportRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/spreads': typeof AuthenticatedSpreadsRoute
   '/utilization': typeof AuthenticatedUtilizationRoute
@@ -164,6 +172,7 @@ export interface FileRoutesById {
   '/_authenticated/map': typeof AuthenticatedMapRoute
   '/_authenticated/outages': typeof AuthenticatedOutagesRoute
   '/_authenticated/prices': typeof AuthenticatedPricesRoute
+  '/_authenticated/report': typeof AuthenticatedReportRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/spreads': typeof AuthenticatedSpreadsRoute
   '/_authenticated/utilization': typeof AuthenticatedUtilizationRoute
@@ -184,6 +193,7 @@ export interface FileRouteTypes {
     | '/map'
     | '/outages'
     | '/prices'
+    | '/report'
     | '/settings'
     | '/spreads'
     | '/utilization'
@@ -202,6 +212,7 @@ export interface FileRouteTypes {
     | '/map'
     | '/outages'
     | '/prices'
+    | '/report'
     | '/settings'
     | '/spreads'
     | '/utilization'
@@ -221,6 +232,7 @@ export interface FileRouteTypes {
     | '/_authenticated/map'
     | '/_authenticated/outages'
     | '/_authenticated/prices'
+    | '/_authenticated/report'
     | '/_authenticated/settings'
     | '/_authenticated/spreads'
     | '/_authenticated/utilization'
@@ -282,6 +294,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/report': {
+      id: '/_authenticated/report'
+      path: '/report'
+      fullPath: '/report'
+      preLoaderRoute: typeof AuthenticatedReportRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/prices': {
@@ -368,6 +387,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedMapRoute: typeof AuthenticatedMapRoute
   AuthenticatedOutagesRoute: typeof AuthenticatedOutagesRoute
   AuthenticatedPricesRoute: typeof AuthenticatedPricesRoute
+  AuthenticatedReportRoute: typeof AuthenticatedReportRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedSpreadsRoute: typeof AuthenticatedSpreadsRoute
   AuthenticatedUtilizationRoute: typeof AuthenticatedUtilizationRoute
@@ -385,6 +405,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedMapRoute: AuthenticatedMapRoute,
   AuthenticatedOutagesRoute: AuthenticatedOutagesRoute,
   AuthenticatedPricesRoute: AuthenticatedPricesRoute,
+  AuthenticatedReportRoute: AuthenticatedReportRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedSpreadsRoute: AuthenticatedSpreadsRoute,
   AuthenticatedUtilizationRoute: AuthenticatedUtilizationRoute,
@@ -403,3 +424,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
