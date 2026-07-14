@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { APP_PASSWORD, AUTH_KEY } from "@/lib/auth";
+import { supabase } from "@/integrations/supabase/client";
+import { lovable } from "@/integrations/lovable";
 
 export const Route = createFileRoute("/login")({
   head: () => ({ meta: [{ title: "Sign in — SEE Trading Desk" }] }),
@@ -13,20 +14,34 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginPage() {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const nav = useNavigate();
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    if (password === APP_PASSWORD) {
-      try { localStorage.setItem(AUTH_KEY, "1"); } catch {}
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (!error) {
       nav({ to: "/dashboard" });
     } else {
-      toast.error("Incorrect password");
+      toast.error(error.message || "Sign in failed");
       setBusy(false);
     }
+  };
+
+  const onLovableSignIn = async () => {
+    setBusy(true);
+    const result = await lovable.auth.signInWithOAuth("lovable", {
+      redirect_uri: window.location.origin,
+    });
+    if (result.error) {
+      toast.error(result.error.message || "Lovable sign in failed");
+      setBusy(false);
+      return;
+    }
+    if (!result.redirected) nav({ to: "/dashboard" });
   };
 
   return (
@@ -34,10 +49,14 @@ function LoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
           <div className="inline-flex items-center gap-2">
-            <div className="w-8 h-8 rounded bg-gradient-to-br from-primary to-info grid place-items-center text-primary-foreground font-bold">⚡</div>
+            <div className="w-8 h-8 rounded bg-gradient-to-br from-primary to-info grid place-items-center text-primary-foreground font-bold">
+              ⚡
+            </div>
             <div className="text-left">
               <div className="font-semibold tracking-tight text-white">SEE Trading Desk</div>
-              <div className="text-[11px] text-white/80 uppercase tracking-wider">Serbia Arbitrage & CBC Resale</div>
+              <div className="text-[11px] text-white/80 uppercase tracking-wider">
+                Serbia Arbitrage & CBC Resale
+              </div>
             </div>
           </div>
         </div>
@@ -45,10 +64,38 @@ function LoginPage() {
           <CardContent className="p-6">
             <form onSubmit={onSubmit} className="space-y-3">
               <div className="space-y-1.5">
-                <Label className="text-white">Password</Label>
-                <Input type="password" autoFocus required value={password} onChange={e => setPassword(e.target.value)} className="text-white" />
+                <Label className="text-white">Email</Label>
+                <Input
+                  type="email"
+                  autoFocus
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="text-white"
+                />
               </div>
-              <Button type="submit" className="w-full" disabled={busy}>Enter</Button>
+              <div className="space-y-1.5">
+                <Label className="text-white">Password</Label>
+                <Input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="text-white"
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={busy}>
+                Sign in
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={busy}
+                onClick={onLovableSignIn}
+              >
+                Sign in with Lovable
+              </Button>
             </form>
           </CardContent>
         </Card>

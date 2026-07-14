@@ -46,16 +46,28 @@ function ymdh(d: Date): string {
   return `${y}${M}${D}${h}${m}`;
 }
 
-// Europe/Belgrade UTC offset in hours for a given ISO date (1 in winter, 2 in DST).
+// Europe/Belgrade UTC offset at local delivery-day midnight.
 function cetOffsetHours(dayISO: string): number {
-  const noonUtc = new Date(dayISO + "T12:00:00Z");
+  const utcMidnight = new Date(dayISO + "T00:00:00Z");
   const fmt = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Belgrade",
     timeZoneName: "shortOffset",
   });
-  const part = fmt.formatToParts(noonUtc).find((p) => p.type === "timeZoneName")?.value ?? "GMT+1";
+  const part =
+    fmt.formatToParts(utcMidnight).find((p) => p.type === "timeZoneName")?.value ?? "GMT+1";
   const m = /([+-]?\d+)/.exec(part);
   return m ? parseInt(m[1], 10) : 1;
+}
+
+function belgradeDeliveryWindow(dayISO: string) {
+  const startOffsetH = cetOffsetHours(dayISO);
+  const next = new Date(dayISO + "T00:00:00Z");
+  next.setUTCDate(next.getUTCDate() + 1);
+  const nextISO = next.toISOString().slice(0, 10);
+  const endOffsetH = cetOffsetHours(nextISO);
+  const start = new Date(Date.parse(dayISO + "T00:00:00Z") - startOffsetH * 3600_000);
+  const end = new Date(Date.parse(nextISO + "T00:00:00Z") - endOffsetH * 3600_000);
+  return { start, end };
 }
 
 export interface FetchResult<T> {
@@ -269,9 +281,7 @@ export async function fetchDayAheadPrices(
   try {
     // SEEPEX / SEE delivery days are CET/CEST (Europe/Belgrade, UTC+1 or +2).
     // Build the proper local-day window so we return exactly the 24 hours of dayISO.
-    const offsetH = cetOffsetHours(dayISO); // 1 in winter, 2 in DST
-    const start = new Date(Date.parse(dayISO + "T00:00:00Z") - offsetH * 3600_000);
-    const end = new Date(start.getTime() + 24 * 3600_000);
+    const { start, end } = belgradeDeliveryWindow(dayISO);
     const xml = await entsoeRaw({
       documentType: ENTSOE_DOCUMENT_TYPES.day_ahead_prices,
       in_Domain: ZONES[zone].eic,
@@ -373,9 +383,7 @@ export async function fetchPhysicalFlows(
   if (demo) return staleCacheOrEmpty(key, emptyData, "demo_disabled");
   if (!token()) return staleCacheOrEmpty(key, emptyData, "no_token");
   try {
-    const offsetH = cetOffsetHours(dayISO);
-    const start = new Date(Date.parse(dayISO + "T00:00:00Z") - offsetH * 3600_000);
-    const end = new Date(start.getTime() + 24 * 3600_000);
+    const { start, end } = belgradeDeliveryWindow(dayISO);
     const xml = await entsoeRaw({
       documentType: ENTSOE_DOCUMENT_TYPES.physical_flows,
       in_Domain: ZONES[to].eic,
@@ -489,8 +497,7 @@ export async function fetchExplicitAllocation(
   if (demo) return staleCacheOrEmpty(key, emptyData, "demo_disabled");
   if (!t) return staleCacheOrEmpty(key, emptyData, "no_token");
   try {
-    const start = new Date(dayISO + "T00:00:00Z");
-    const end = new Date(start.getTime() + 24 * 3600_000);
+    const { start, end } = belgradeDeliveryWindow(dayISO);
     const baseParams = {
       documentType: ENTSOE_DOCUMENT_TYPES.explicit_allocations,
       "contract_MarketAgreement.Type": MARKET_AGREEMENT_TYPES[product],

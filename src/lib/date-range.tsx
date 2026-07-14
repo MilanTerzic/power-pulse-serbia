@@ -1,6 +1,23 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+export function belgradeDateISO(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Belgrade",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+export function addDaysISO(dayISO: string, days: number) {
+  const date = new Date(`${dayISO}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return belgradeDateISO(date);
+}
+
+const todayISO = () => belgradeDateISO();
 
 export interface DateRange {
   from: string;

@@ -1,7 +1,11 @@
-export const APP_PASSWORD = "metsrb123";
-export const AUTH_KEY = "see_td_auth";
+import { supabase } from "@/integrations/supabase/client";
 
-export function hasSimpleAuth() {
+export async function hasSupabaseSession() {
   if (typeof window === "undefined") return false;
-  return localStorage.getItem(AUTH_KEY) === "1";
+  const { data } = await supabase.auth.getSession();
+  return !!data.session?.access_token;
+}
+
+export async function signOut() {
+  await supabase.auth.signOut();
 }

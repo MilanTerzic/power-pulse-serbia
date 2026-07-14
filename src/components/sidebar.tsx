@@ -18,7 +18,7 @@ import {
   FileChartColumn,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
-import { AUTH_KEY } from "@/lib/auth";
+import { signOut as signOutSession } from "@/lib/auth";
 
 const NAV = [
   { to: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -41,12 +41,8 @@ const NAV = [
 export function Sidebar() {
   const loc = useLocation();
   const nav = useNavigate();
-  const signOut = () => {
-    try {
-      localStorage.removeItem(AUTH_KEY);
-    } catch {
-      // Ignore storage errors during sign-out.
-    }
+  const signOut = async () => {
+    await signOutSession();
     nav({ to: "/login" });
   };
   return (

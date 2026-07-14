@@ -1,260 +1,708 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
-import { getDashboardSnapshot } from "@/lib/data.functions";
+import { useMemo, useState } from "react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { TopBar } from "@/components/top-bar";
 import { KPI } from "@/components/kpi";
 import { Panel } from "@/components/panel";
-import { DataBadge } from "@/components/data-badge";
-import { fmtPrice, fmtNum } from "@/lib/format";
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
-import { useDateRange } from "@/lib/date-range";
-import { ZONES } from "@/lib/markets";
 import { Button } from "@/components/ui/button";
+import { DataBadge } from "@/components/data-badge";
+import { getDashboardSnapshot } from "@/lib/data.functions";
+import { daysInRange, useDateRange } from "@/lib/date-range";
+import { fmtNum, fmtPrice } from "@/lib/format";
+import { ZONES, type ZoneCode } from "@/lib/markets";
+import {
+  averagePrice,
+  buildMarketSignalSummary,
+  buildRouteOpportunity,
+  completenessForSeries,
+  rankOpportunities,
+  type PricePoint,
+  type RouteOpportunity,
+} from "@/lib/trading-calculations";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Overview — SEE Trading Desk" }] }),
   component: OverviewPage,
 });
 
+const ZONE_LINES: Array<{ key: ZoneCode; color: string }> = [
+  { key: "RS", color: "#1ec8c8" },
+  { key: "HU", color: "#5aa9e6" },
+  { key: "RO", color: "#f5b14c" },
+  { key: "BG", color: "#a78bfa" },
+  { key: "HR", color: "#34d399" },
+  { key: "BA", color: "#fb7185" },
+  { key: "ME", color: "#22d3ee" },
+  { key: "MK", color: "#fbbf24" },
+  { key: "AL", color: "#e879f9" },
+  { key: "SI", color: "#94a3b8" },
+];
+
+type ChartMode = "prices" | "spreads" | "heatmap";
+
 function OverviewPage() {
   const fn = useServerFn(getDashboardSnapshot);
   const { range } = useDateRange();
+  const [selectedZones, setSelectedZones] = useState<ZoneCode[] | null>(null);
+  const [chartMode, setChartMode] = useState<ChartMode>("prices");
+  const [healthOpen, setHealthOpen] = useState(false);
+
   const q = useQuery({
     queryKey: ["snapshot", range.from, range.to],
     queryFn: () => fn({ data: { from: range.from, to: range.to } }),
+    staleTime: 15 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 
-
-
   const data = q.data;
-
-  const rsPoints = data?.byZone?.RS ?? [];
-  const rsAvg = rsPoints.length ? rsPoints.reduce((a, p) => a + p.price, 0) / rsPoints.length : null;
-
-  // Per-zone avg (null when zone has no points — avoids showing €0 for missing data like MK pre-publish)
-  const zoneAvg = (z: string): number | null => {
-    const pts = data?.byZone?.[z] ?? [];
-    return pts.length ? pts.reduce((a, p) => a + p.price, 0) / pts.length : null;
-  };
-
-  // Compute neighbours best/worst — exclude zones with no data
-  const neighbourAvgs = (data?.prices ?? [])
-    .filter(p => p.zone !== "RS" && p.data.points.length > 0)
-    .map(p => ({
-      zone: p.zone,
-      avg: p.data.points.reduce((a, x) => a + x.price, 0) / p.data.points.length,
-      source: p.source,
-    }));
-  const lowest = neighbourAvgs.slice().sort((a, b) => a.avg - b.avg)[0];
-  const highest = neighbourAvgs.slice().sort((a, b) => b.avg - a.avg)[0];
-
-  // Best import: max gross spread (RS - source) - capacity cost. Skip routes where source has no data.
-  const opportunities = (data?.importRoutes ?? [])
-    .map(r => {
-      const srcAvg = zoneAvg(r.from);
-      if (rsAvg == null || srcAvg == null) return null;
-      const gross = rsAvg - srcAvg;
-      const cap = r.cap.data.price_eur_mwh ?? 0;
-      return { label: r.label, from: r.from, to: r.to, gross, cap, net: gross - cap, source: r.cap.source };
-    })
-    .filter((x): x is NonNullable<typeof x> => x !== null)
-    .sort((a, b) => b.net - a.net);
-
-  const exportOpps = (data?.exportRoutes ?? [])
-    .map(r => {
-      const dstAvg = zoneAvg(r.to);
-      if (rsAvg == null || dstAvg == null) return null;
-      const gross = dstAvg - rsAvg;
-      const cap = r.cap.data.price_eur_mwh ?? 0;
-      return { label: r.label, from: r.from, to: r.to, gross, cap, net: gross - cap, source: r.cap.source };
-    })
-    .filter((x): x is NonNullable<typeof x> => x !== null)
-    .sort((a, b) => b.net - a.net);
-
-  // Build combined chart data — one row per hourly timestamp, all zones aligned
+  const dayList = useMemo(() => daysInRange(range.from, range.to), [range.from, range.to]);
   const multiDay = range.from !== range.to;
-  const tsIndex = new Map<string, Record<string, number | string>>();
-  for (const z of data?.prices ?? []) {
-    for (const pt of z.data.points) {
-      const row = tsIndex.get(pt.ts) ?? {
-        ts: pt.ts,
-        t: new Date(pt.ts).toLocaleString("en-GB", {
-          hour: "2-digit",
-          ...(multiDay ? { day: "2-digit", month: "short" } : {}),
-          timeZone: "Europe/Belgrade",
-        }),
-      };
-      row[z.zone] = pt.price;
-      tsIndex.set(pt.ts, row);
-    }
-  }
-  const chartData = [...tsIndex.values()].sort((a, b) => (a.ts as string) < (b.ts as string) ? -1 : 1);
+  const byZone = useMemo(() => data?.byZone ?? {}, [data?.byZone]);
+  const rsPoints = (byZone.RS ?? []) as PricePoint[];
+  const rsAvg = averagePrice(rsPoints);
+  const previousAvg = data?.previousRS?.avg ?? null;
+  const rsDelta = rsAvg != null && previousAvg != null ? rsAvg - previousAvg : null;
 
-  const ZONE_LINES: Array<{ key: string; color: string }> = [
-    { key: "RS", color: "#1ec8c8" },
-    { key: "HU", color: "#5aa9e6" },
-    { key: "RO", color: "#f5b14c" },
-    { key: "BG", color: "#a78bfa" },
-    { key: "HR", color: "#34d399" },
-    { key: "BA", color: "#fb7185" },
-    { key: "ME", color: "#22d3ee" },
-    { key: "MK", color: "#fbbf24" },
-    { key: "AL", color: "#e879f9" },
-    { key: "SI", color: "#94a3b8" },
-  ];
+  const completeness = useMemo(() => {
+    const rows = (data?.prices ?? []).map((price) => {
+      const comp = completenessForSeries(price.data.points as PricePoint[], dayList);
+      const status =
+        comp.receivedIntervals === 0
+          ? "Unavailable"
+          : comp.completenessPct >= 98
+            ? price.source === "cache"
+              ? "Cached"
+              : "Current"
+            : "Partial";
+      return {
+        zone: price.zone as ZoneCode,
+        label: `${price.zone} DA`,
+        status,
+        source: price.source,
+        completeness: comp,
+        checkedAt: price.fetched_at,
+      };
+    });
+    const current = rows.filter(
+      (row) => row.status === "Current" || row.status === "Cached",
+    ).length;
+    return { rows, label: `${current}/${rows.length} markets current` };
+  }, [data?.prices, dayList]);
 
   const availableZones = useMemo(
-    () => ZONE_LINES.map(z => z.key).filter(k => (data?.prices ?? []).some(p => p.zone === k && p.data.points.length > 0)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    () =>
+      ZONE_LINES.map((zone) => zone.key).filter((key) =>
+        (data?.prices ?? []).some((price) => price.zone === key && price.data.points.length > 0),
+      ),
     [data],
   );
-  const [selectedZones, setSelectedZones] = useState<string[] | null>(null);
-  const activeZones = selectedZones ?? availableZones;
-  const toggleZone = (z: string) => {
-    const base = selectedZones ?? availableZones;
-    const next = base.includes(z) ? base.filter(x => x !== z) : [...base, z];
-    setSelectedZones(next);
-  };
+  const defaultZones = availableZones.filter((zone) =>
+    (["RS", "HU", "RO", "BG", "ME"] as ZoneCode[]).includes(zone),
+  );
+  const activeZones = selectedZones ?? (defaultZones.length ? defaultZones : availableZones);
 
-  // Downsample chart data only (KPIs still use full dataset above)
-  const MAX_POINTS = 1500;
-  const displayChartData = useMemo(() => {
-    if (chartData.length <= MAX_POINTS) return chartData;
-    const stride = Math.ceil(chartData.length / MAX_POINTS);
-    return chartData.filter((_, i) => i % stride === 0);
-  }, [chartData]);
+  const importRoutes = useMemo(
+    () =>
+      (data?.importRoutes ?? []).map((route) =>
+        buildRouteOpportunity({
+          from: route.from,
+          to: route.to,
+          label: route.label,
+          sourcePoints: byZone[route.from] as PricePoint[] | undefined,
+          destinationPoints: byZone.RS as PricePoint[] | undefined,
+          capacity: route.cap,
+          multiDay,
+        }),
+      ),
+    [data?.importRoutes, byZone, multiDay],
+  );
+  const exportRoutes = useMemo(
+    () =>
+      (data?.exportRoutes ?? []).map((route) =>
+        buildRouteOpportunity({
+          from: route.from,
+          to: route.to,
+          label: route.label,
+          sourcePoints: byZone.RS as PricePoint[] | undefined,
+          destinationPoints: byZone[route.to] as PricePoint[] | undefined,
+          capacity: route.cap,
+          multiDay,
+        }),
+      ),
+    [data?.exportRoutes, byZone, multiDay],
+  );
 
+  const bestImport = rankOpportunities(importRoutes)[0];
+  const bestExport = rankOpportunities(exportRoutes)[0];
+  const signal = buildMarketSignalSummary({ rsAvg, importRoutes, exportRoutes });
+  const peak = peakOffPeak(rsPoints);
+  const chart = useMemo(
+    () => buildChartData(data?.prices ?? [], activeZones, chartMode),
+    [data?.prices, activeZones, chartMode],
+  );
 
   return (
     <>
       <TopBar
         title="Overview"
-        subtitle="Where is it best to buy/sell electricity around Serbia today?"
+        subtitle="Serbia power-market signal, CBC-adjusted route checks and regional spreads."
         lastRefresh={data?.prices?.[0]?.fetched_at}
         onRefresh={() => q.refetch()}
+        isRefreshing={q.isFetching}
+        dataHealth={completeness.label}
+        onDataHealthClick={() => setHealthOpen((value) => !value)}
       />
-      <div className="p-6 space-y-5">
+      <div className="space-y-5 p-4 md:p-6">
+        {healthOpen && <DataHealthPanel rows={completeness.rows} />}
 
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <KPI
             label={`SEEPEX baseload · ${range.from === range.to ? range.from : `${range.from} → ${range.to}`}`}
             value={fmtPrice(rsAvg)}
-            sub={rsPoints.length ? `Avg of ${rsPoints.length} hourly DA prices (€/MWh)` : "No data"}
-            source={data?.prices?.find(p => p.zone === "RS")?.source}
+            sub={
+              rsPoints.length
+                ? `${rsDelta == null ? "Previous day unavailable" : `${rsDelta >= 0 ? "+" : ""}${fmtPrice(rsDelta)} vs previous delivery day`} · ${completenessForSeries(rsPoints, dayList).receivedIntervals}/${completenessForSeries(rsPoints, dayList).expectedIntervals} intervals`
+                : "No Serbia price data"
+            }
+            source={data?.prices?.find((price) => price.zone === "RS")?.source}
           />
-          {data?.tomorrowRS ? (
-            <KPI
-              label={`SEEPEX baseload · ${data.tomorrowRS.day} (tomorrow)`}
-              value={data.tomorrowRS.avg != null ? fmtPrice(data.tomorrowRS.avg) : "Not published yet"}
-              sub={data.tomorrowRS.avg != null
-                ? `Avg of ${data.tomorrowRS.points.length}h · gate-closed`
-                : "DA auction publishes ~12:45 CET"}
-              source={data.tomorrowRS.avg != null ? data.tomorrowRS.source : undefined}
-              accent={data.tomorrowRS.avg != null ? "info" : "muted"}
-            />
-          ) : (
-            <KPI label="Cheapest neighbour" value={lowest ? `${lowest.zone} · ${fmtPrice(lowest.avg)}` : "—"} accent="success" source={lowest?.source} />
-          )}
-          <KPI label="Most expensive neighbour" value={highest ? `${highest.zone} · ${fmtPrice(highest.avg)}` : "—"} accent="destructive" source={highest?.source} />
-          <KPI label="Best net import route" value={opportunities[0] ? `${opportunities[0].label}` : "—"} sub={opportunities[0] ? `${fmtPrice(opportunities[0].net)} net` : ""} accent={opportunities[0]?.net > 0 ? "success" : "muted"} source={opportunities[0]?.source} />
+          <KPI
+            label="Peak / off-peak"
+            value={peak.peak == null ? "N/A" : `${fmtPrice(peak.peak)} / ${fmtPrice(peak.offPeak)}`}
+            sub={
+              peak.spread == null
+                ? "Peak 08-20 Europe/Belgrade, weekdays"
+                : `Spread ${fmtPrice(peak.spread)} · peak 08-20 local weekdays`
+            }
+            accent="info"
+          />
+          <OpportunityKpi
+            title="Best validated import route"
+            route={bestImport}
+            empty="No validated import opportunity"
+          />
+          <OpportunityKpi
+            title="Best validated export route"
+            route={bestExport}
+            empty="No validated export opportunity"
+          />
         </div>
+
+        <Panel title="Market signal summary">
+          <p className="text-sm leading-relaxed text-foreground/90">{signal}</p>
+          {multiDay && (
+            <p className="mt-2 text-xs text-warning">
+              Multi-day selection: route tables show gross market spreads and indicative rows only
+              unless CBC is matched day by day.
+            </p>
+          )}
+        </Panel>
 
         <Panel
-          title={`Hourly day-ahead spot price by country — ${range.from === range.to ? range.from : `${range.from} → ${range.to}`}`}
-          actions={<span className="text-[10px] text-muted-foreground">€/MWh · time in CET (Europe/Belgrade){chartData.length !== displayChartData.length ? ` · downsampled ${chartData.length}→${displayChartData.length}` : ""}</span>}
+          title={`Regional price analysis — ${range.from === range.to ? range.from : `${range.from} → ${range.to}`}`}
+          actions={
+            <span className="text-[10px] text-muted-foreground">
+              {chart.aggregation} · Europe/Belgrade local time
+            </span>
+          }
         >
-          <p className="text-xs text-muted-foreground mb-2">
-            Each line is one country's day-ahead auction clearing price for every hour of the selected period.
-            Serbia (RS, thick teal) is the reference: neighbours above RS suggest export opportunities, below RS suggest import opportunities.
-          </p>
-          <div className="flex flex-wrap gap-1.5 mb-3 items-center">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-1">Countries:</span>
-            {ZONE_LINES.filter(z => availableZones.includes(z.key)).map(z => {
-              const on = activeZones.includes(z.key);
-              return (
-                <button
-                  key={z.key}
-                  type="button"
-                  onClick={() => toggleZone(z.key)}
-                  className={`text-[11px] px-2 py-0.5 rounded border transition ${on ? "border-transparent text-background" : "border-border/60 text-muted-foreground bg-surface-2"}`}
-                  style={on ? { background: z.color } : undefined}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-1">
+              {(["prices", "spreads", "heatmap"] as ChartMode[]).map((mode) => (
+                <Button
+                  key={mode}
+                  size="sm"
+                  variant={chartMode === mode ? "default" : "outline"}
+                  className="h-7 px-2 text-[11px] capitalize"
+                  onClick={() => setChartMode(mode)}
                 >
-                  {z.key}
-                </button>
-              );
-            })}
-            <Button size="sm" variant="ghost" className="h-6 text-[11px] ml-2" onClick={() => setSelectedZones(null)}>All</Button>
-            <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={() => setSelectedZones(["RS"])}>Only RS</Button>
+                  {mode === "spreads" ? "Spread vs Serbia" : mode}
+                </Button>
+              ))}
+            </div>
+            <ZoneSelector
+              availableZones={availableZones}
+              activeZones={activeZones}
+              setSelectedZones={setSelectedZones}
+            />
           </div>
-          <div className="h-72">
-            <ResponsiveContainer>
-              <LineChart data={displayChartData} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
-                <CartesianGrid stroke="var(--color-grid)" strokeDasharray="3 3" />
-                <XAxis dataKey="t" stroke="var(--color-muted-foreground)" fontSize={11} minTickGap={28} />
-                <YAxis stroke="var(--color-muted-foreground)" fontSize={11} unit=" €" label={{ value: "€/MWh", angle: -90, position: "insideLeft", fill: "var(--color-muted-foreground)", fontSize: 10 }} />
-                <Tooltip contentStyle={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }} formatter={(v: number) => [`${typeof v === "number" ? v.toFixed(2) : v} €/MWh`, ""]} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                {ZONE_LINES.filter(z => activeZones.includes(z.key)).map(z => <Line key={z.key} dataKey={z.key} stroke={z.color} dot={false} strokeWidth={z.key === "RS" ? 2.4 : 1.2} connectNulls />)}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          {chartMode === "heatmap" ? (
+            <SpreadHeatmap data={chart.data} zones={activeZones.filter((zone) => zone !== "RS")} />
+          ) : (
+            <div className="h-80">
+              <ResponsiveContainer>
+                <LineChart data={chart.data} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
+                  <CartesianGrid stroke="var(--color-grid)" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="t"
+                    stroke="var(--color-muted-foreground)"
+                    fontSize={11}
+                    minTickGap={28}
+                  />
+                  <YAxis
+                    stroke="var(--color-muted-foreground)"
+                    fontSize={11}
+                    label={{
+                      value: chartMode === "spreads" ? "Market - RS EUR/MWh" : "EUR/MWh",
+                      angle: -90,
+                      position: "insideLeft",
+                      fill: "var(--color-muted-foreground)",
+                      fontSize: 10,
+                    }}
+                  />
+                  {chartMode === "spreads" && (
+                    <ReferenceLine y={0} stroke="var(--color-muted-foreground)" />
+                  )}
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--color-surface-2)",
+                      border: "1px solid var(--color-border)",
+                    }}
+                    formatter={(value: number, name) => [
+                      typeof value === "number" ? `${value.toFixed(2)} EUR/MWh` : "N/A",
+                      name,
+                    ]}
+                  />
+                  {ZONE_LINES.filter((zone) => activeZones.includes(zone.key))
+                    .filter((zone) => chartMode === "prices" || zone.key !== "RS")
+                    .map((zone) => (
+                      <Line
+                        key={zone.key}
+                        dataKey={zone.key}
+                        name={zone.key}
+                        stroke={zone.color}
+                        dot={false}
+                        strokeWidth={zone.key === "RS" ? 2.8 : 1.3}
+                        connectNulls={false}
+                        isAnimationActive={false}
+                      />
+                    ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          {chartMode === "spreads" && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Positive values mean the neighbouring market is above Serbia, indicating potential
+              Serbia export direction before CBC cost. Negative values indicate import direction.
+            </p>
+          )}
         </Panel>
 
-
-        <div className="grid md:grid-cols-2 gap-4">
-          <Panel title="Top 3 import opportunities">
-            <table className="w-full text-sm">
-              <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                <tr><th className="text-left py-1.5">Route</th><th className="text-right">Gross €/MWh</th><th className="text-right">Cap €/MWh</th><th className="text-right">Net €/MWh</th><th></th></tr>
-              </thead>
-              <tbody>
-                {opportunities.slice(0, 3).map(o => (
-                  <tr key={o.label} className="border-t border-border/60">
-                    <td className="py-1.5">{ZONES[o.from].name} → {ZONES[o.to].name}</td>
-                    <td className="text-right num">{fmtNum(o.gross)}</td>
-                    <td className="text-right num text-muted-foreground">{fmtNum(o.cap)}</td>
-                    <td className={`text-right num font-semibold ${o.net > 0 ? "text-success" : "text-destructive"}`}>{fmtNum(o.net)}</td>
-                    <td className="text-right"><DataBadge source={o.source} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Panel>
-
-          <Panel title="Top 3 export opportunities">
-            <table className="w-full text-sm">
-              <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                <tr><th className="text-left py-1.5">Route</th><th className="text-right">Gross €/MWh</th><th className="text-right">Cap €/MWh</th><th className="text-right">Net €/MWh</th><th></th></tr>
-              </thead>
-              <tbody>
-                {exportOpps.slice(0, 3).map(o => (
-                  <tr key={o.label} className="border-t border-border/60">
-                    <td className="py-1.5">{ZONES[o.from].name} → {ZONES[o.to].name}</td>
-                    <td className="text-right num">{fmtNum(o.gross)}</td>
-                    <td className="text-right num text-muted-foreground">{fmtNum(o.cap)}</td>
-                    <td className={`text-right num font-semibold ${o.net > 0 ? "text-success" : "text-destructive"}`}>{fmtNum(o.net)}</td>
-                    <td className="text-right"><DataBadge source={o.source} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Panel>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <RouteOpportunityTable title="Import opportunities" routes={importRoutes} />
+          <RouteOpportunityTable title="Export opportunities" routes={exportRoutes} />
         </div>
-
-        <Panel title="Data status">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
-            {(data?.prices ?? []).map(p => (
-              <div key={p.zone} className="flex items-center justify-between bg-surface-2 rounded px-2 py-1.5">
-                <span className="text-muted-foreground">{p.zone}</span>
-                <DataBadge source={p.source} />
-              </div>
-            ))}
-          </div>
-        </Panel>
       </div>
     </>
   );
+}
+
+function OpportunityKpi({
+  title,
+  route,
+  empty,
+}: {
+  title: string;
+  route?: RouteOpportunity;
+  empty: string;
+}) {
+  return (
+    <KPI
+      label={title}
+      value={route ? route.label : empty}
+      sub={
+        route
+          ? `${fmtPrice(route.netSpread)} net · CBC ${fmtPrice(route.capacityCost)} · ${route.profitableIntervals}/${route.totalIntervals} profitable`
+          : "Validated routes require CBC price and capacity volume"
+      }
+      source={route?.source}
+      accent={route ? "success" : "muted"}
+    />
+  );
+}
+
+function ZoneSelector({
+  availableZones,
+  activeZones,
+  setSelectedZones,
+}: {
+  availableZones: ZoneCode[];
+  activeZones: ZoneCode[];
+  setSelectedZones: (zones: ZoneCode[] | null) => void;
+}) {
+  const directNeighbours: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "ME", "MK"].filter((zone) =>
+    availableZones.includes(zone as ZoneCode),
+  ) as ZoneCode[];
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
+      {ZONE_LINES.filter((zone) => availableZones.includes(zone.key)).map((zone) => {
+        const on = activeZones.includes(zone.key);
+        return (
+          <button
+            key={zone.key}
+            type="button"
+            onClick={() =>
+              setSelectedZones(
+                on
+                  ? activeZones.filter((active) => active !== zone.key)
+                  : [...activeZones, zone.key],
+              )
+            }
+            className={`rounded border px-2 py-0.5 text-[11px] transition ${
+              on
+                ? "border-transparent text-background"
+                : "border-border/60 bg-surface-2 text-muted-foreground"
+            }`}
+            style={on ? { background: zone.color } : undefined}
+          >
+            {zone.key}
+          </button>
+        );
+      })}
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 text-[11px]"
+        onClick={() => setSelectedZones(null)}
+      >
+        Select all
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 text-[11px]"
+        onClick={() => setSelectedZones(["RS"])}
+      >
+        Only Serbia
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 text-[11px]"
+        onClick={() => setSelectedZones(directNeighbours)}
+      >
+        Direct neighbours
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 text-[11px]"
+        onClick={() => setSelectedZones([])}
+      >
+        Clear
+      </Button>
+    </div>
+  );
+}
+
+function RouteOpportunityTable({ title, routes }: { title: string; routes: RouteOpportunity[] }) {
+  const rows = [
+    ...rankOpportunities(routes),
+    ...routes
+      .filter((route) => route.status === "indicative" && (route.grossSpread ?? 0) > 0)
+      .sort((a, b) => (b.grossSpread ?? -Infinity) - (a.grossSpread ?? -Infinity)),
+  ];
+  return (
+    <Panel title={title}>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px] text-sm">
+          <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="py-1.5 text-left">Route</th>
+              <th className="text-right">Gross</th>
+              <th className="text-right">CBC</th>
+              <th className="text-right">Net</th>
+              <th className="text-right">Profitable</th>
+              <th className="text-right">Capacity</th>
+              <th className="text-right">1 MW margin</th>
+              <th className="text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="py-6 text-center text-xs text-muted-foreground">
+                  No validated positive route for the selected delivery period.
+                </td>
+              </tr>
+            ) : (
+              rows.map((route) => (
+                <tr key={route.label} className="border-t border-border/60">
+                  <td className="py-1.5">
+                    {ZONES[route.from].name} → {ZONES[route.to].name}
+                  </td>
+                  <td className="num text-right">{fmtMaybe(route.grossSpread)}</td>
+                  <td className="num text-right text-muted-foreground">
+                    {fmtMaybe(route.capacityCost)}
+                  </td>
+                  <td
+                    className={`num text-right font-semibold ${route.netSpread != null && route.netSpread > 0 ? "text-success" : "text-muted-foreground"}`}
+                  >
+                    {fmtMaybe(route.netSpread)}
+                  </td>
+                  <td className="num text-right">
+                    {route.profitableIntervals == null
+                      ? "—"
+                      : `${route.profitableIntervals}/${route.totalIntervals}`}
+                  </td>
+                  <td className="num text-right">
+                    {route.availableCapacityMw == null
+                      ? "—"
+                      : `${route.availableCapacityMw.toFixed(0)} MW`}
+                  </td>
+                  <td className="num text-right">
+                    {route.potentialMarginPerMw == null
+                      ? "—"
+                      : `€${route.potentialMarginPerMw.toFixed(0)}`}
+                  </td>
+                  <td className="text-right">
+                    <OpportunityStatusBadge route={route} />
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
+function OpportunityStatusBadge({ route }: { route: RouteOpportunity }) {
+  const cls =
+    route.status === "validated"
+      ? "border-success/30 bg-success/15 text-success"
+      : route.status === "indicative"
+        ? "border-warning/30 bg-warning/15 text-warning"
+        : "border-muted-foreground/30 bg-muted/30 text-muted-foreground";
+  return (
+    <span
+      className={`inline-flex rounded border px-1.5 py-0 text-[10px] uppercase tracking-wider ${cls}`}
+      title={route.reason}
+    >
+      {route.status === "indicative" ? (route.reason ?? "Indicative") : route.status}
+    </span>
+  );
+}
+
+function DataHealthPanel({
+  rows,
+}: {
+  rows: Array<{
+    zone: ZoneCode;
+    label: string;
+    status: string;
+    source: string;
+    completeness: ReturnType<typeof completenessForSeries>;
+    checkedAt: string;
+  }>;
+}) {
+  return (
+    <Panel title="Data health">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-sm">
+          <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="py-1.5 text-left">Dataset</th>
+              <th>Status</th>
+              <th>Completeness</th>
+              <th>Checked</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.zone} className="border-t border-border/60">
+                <td className="py-1.5">{row.label}</td>
+                <td>{row.status}</td>
+                <td className="num">
+                  {row.completeness.receivedIntervals}/{row.completeness.expectedIntervals}
+                </td>
+                <td className="num">
+                  {new Date(row.checkedAt).toLocaleTimeString("en-GB", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    timeZone: "Europe/Belgrade",
+                  })}
+                </td>
+                <td>
+                  <DataBadge source={row.source} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
+function SpreadHeatmap({
+  data,
+  zones,
+}: {
+  data: Array<Record<string, number | string | null>>;
+  zones: ZoneCode[];
+}) {
+  const visibleRows = zones.filter((zone) => data.some((row) => typeof row[zone] === "number"));
+  return (
+    <div className="overflow-x-auto">
+      <div
+        className="grid gap-[2px]"
+        style={{
+          gridTemplateColumns: `90px repeat(${Math.min(data.length, 48)}, minmax(34px, 1fr))`,
+        }}
+      >
+        <div />
+        {data.slice(0, 48).map((row) => (
+          <div
+            key={String(row.ts)}
+            className="truncate text-center text-[10px] text-muted-foreground"
+          >
+            {row.t}
+          </div>
+        ))}
+        {visibleRows.map((zone) => (
+          <>
+            <div key={`${zone}-label`} className="py-1 pr-2 text-xs">
+              {zone}
+            </div>
+            {data.slice(0, 48).map((row) => {
+              const value = row[zone];
+              return (
+                <div
+                  key={`${zone}-${row.ts}`}
+                  className="h-7 rounded-[3px]"
+                  title={`${zone} - RS · ${row.t}: ${typeof value === "number" ? value.toFixed(2) : "N/A"} EUR/MWh`}
+                  style={{
+                    background:
+                      typeof value === "number" ? spreadColor(value) : "var(--color-surface-2)",
+                  }}
+                />
+              );
+            })}
+          </>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function spreadColor(value: number) {
+  const magnitude = Math.min(Math.abs(value) / 80, 1);
+  if (value >= 0)
+    return `color-mix(in oklch, var(--color-success) ${20 + magnitude * 55}%, var(--color-surface-2))`;
+  return `color-mix(in oklch, var(--color-destructive) ${20 + magnitude * 55}%, var(--color-surface-2))`;
+}
+
+function fmtMaybe(value: number | null | undefined) {
+  return value == null ? "—" : fmtNum(value);
+}
+
+function peakOffPeak(points: PricePoint[]) {
+  const peakValues: number[] = [];
+  const offPeakValues: number[] = [];
+  for (const point of points) {
+    const date = new Date(point.ts);
+    const weekday = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Belgrade",
+      weekday: "short",
+    }).format(date);
+    const hour = Number(
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Belgrade",
+        hour: "2-digit",
+        hour12: false,
+      }).format(date),
+    );
+    const isWeekend = weekday === "Sat" || weekday === "Sun";
+    const isPeak = !isWeekend && hour >= 8 && hour < 20;
+    (isPeak ? peakValues : offPeakValues).push(point.price);
+  }
+  const peak = average(peakValues);
+  const offPeak = average(offPeakValues);
+  return {
+    peak,
+    offPeak,
+    spread: peak == null || offPeak == null ? null : peak - offPeak,
+  };
+}
+
+function average(values: number[]) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+function buildChartData(
+  prices: Array<{ zone: string; data: { points: PricePoint[] } }>,
+  activeZones: ZoneCode[],
+  mode: ChartMode,
+) {
+  const byTs = new Map<string, Record<string, number | string | null>>();
+  const rsByTs = new Map(
+    (prices.find((price) => price.zone === "RS")?.data.points ?? []).map((point) => [
+      point.ts,
+      point.price,
+    ]),
+  );
+  for (const zone of prices) {
+    if (!activeZones.includes(zone.zone as ZoneCode)) continue;
+    for (const point of zone.data.points) {
+      const row = byTs.get(point.ts) ?? {
+        ts: point.ts,
+        t: new Date(point.ts).toLocaleString("en-GB", {
+          hour: "2-digit",
+          ...(prices.some((price) => price.data.points.length > 30)
+            ? { day: "2-digit", month: "short" }
+            : {}),
+          timeZone: "Europe/Belgrade",
+        }),
+      };
+      const rs = rsByTs.get(point.ts);
+      row[zone.zone] =
+        mode === "spreads" || mode === "heatmap"
+          ? rs == null
+            ? null
+            : point.price - rs
+          : point.price;
+      byTs.set(point.ts, row);
+    }
+  }
+  const rows = [...byTs.values()].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+  if (rows.length <= 1500) return { data: rows, aggregation: "interval-level data" };
+  const stride = Math.ceil(rows.length / 750);
+  const bucketed: typeof rows = [];
+  for (let i = 0; i < rows.length; i += stride) {
+    const bucket = rows.slice(i, i + stride);
+    const selectedRows = new Set<(typeof rows)[number]>([bucket[0], bucket[bucket.length - 1]]);
+    for (const zone of activeZones) {
+      let minRow: (typeof rows)[number] | null = null;
+      let maxRow: (typeof rows)[number] | null = null;
+      for (const row of bucket) {
+        const value = row[zone];
+        if (typeof value !== "number") continue;
+        if (minRow == null || value < (minRow[zone] as number)) minRow = row;
+        if (maxRow == null || value > (maxRow[zone] as number)) maxRow = row;
+      }
+      if (minRow) selectedRows.add(minRow);
+      if (maxRow) selectedRows.add(maxRow);
+    }
+    bucketed.push(...[...selectedRows].sort((a, b) => String(a.ts).localeCompare(String(b.ts))));
+  }
+  return {
+    data: bucketed,
+    aggregation: `min/max-preserving display buckets (${rows.length} -> ${bucketed.length})`,
+  };
 }
