@@ -22,7 +22,21 @@ function LoginPage() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    let { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error && /invalid login|invalid credentials/i.test(error.message)) {
+      // Try to sign up any new email automatically
+      const signUp = await supabase.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: window.location.origin },
+      });
+      if (!signUp.error) {
+        const retry = await supabase.auth.signInWithPassword({ email, password });
+        error = retry.error;
+      } else {
+        error = signUp.error;
+      }
+    }
     if (!error) {
       nav({ to: "/dashboard" });
     } else {
