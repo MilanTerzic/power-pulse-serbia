@@ -1,11 +1,11 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { Sidebar } from "@/components/sidebar";
-import { hasSupabaseSession } from "@/lib/auth";
+import { hasAppSession } from "@/lib/auth";
 import { DateRangeProvider } from "@/lib/date-range";
 
 export const Route = createFileRoute("/_authenticated")({
-  beforeLoad: async () => {
-    if (!(await hasSupabaseSession())) {
+  beforeLoad: () => {
+    if (!hasAppSession()) {
       throw redirect({ to: "/login" });
     }
   },

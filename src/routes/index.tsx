@@ -1,9 +1,9 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { hasSupabaseSession } from "@/lib/auth";
+import { hasAppSession } from "@/lib/auth";
 
 export const Route = createFileRoute("/")({
-  beforeLoad: async () => {
-    if (await hasSupabaseSession()) {
+  beforeLoad: () => {
+    if (hasAppSession()) {
       throw redirect({ to: "/dashboard" });
     }
     throw redirect({ to: "/login" });

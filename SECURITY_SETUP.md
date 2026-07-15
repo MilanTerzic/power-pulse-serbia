@@ -1,6 +1,6 @@
 # Security setup
 
-This dashboard uses Supabase/Lovable Cloud authentication. Do not add shared passwords or API tokens to frontend source.
+This dashboard currently uses a single shared app password for the browser login.
 
 Required deployment configuration:
 
@@ -10,6 +10,6 @@ Required deployment configuration:
 - `SUPABASE_PUBLISHABLE_KEY`
 - `ENTSOE_API_TOKEN` for server-side ENTSO-E requests
 
-Supabase Auth must have at least one sign-in method enabled, such as email/password or the Lovable OAuth provider. Protected TanStack server functions validate the Supabase bearer token and reject unauthenticated requests.
+Supabase is still used by features that store user-owned data, such as manual CBC positions and settings. Enable Supabase Auth if those features should be available per user.
 
-Logout clears the Supabase session. ENTSO-E and other private source credentials must remain server-side only.
+Logout clears the local app session. ENTSO-E and other private source credentials must remain server-side only.

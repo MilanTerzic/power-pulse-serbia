@@ -76,7 +76,6 @@ type RangeInput = { day?: string; from?: string; to?: string };
 const DA_ZONES: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "SI", "ME", "MK", "AL"];
 
 export const getDashboardSnapshot = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -165,7 +164,6 @@ export const getDashboardSnapshot = createServerFn({ method: "GET" })
 
 // Hourly DA price profile (avg per hour 0..23) across the date range, per zone.
 export const getAverageDAProfile = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -197,7 +195,6 @@ export const getAverageDAProfile = createServerFn({ method: "GET" })
   });
 
 export const getFlows = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -220,7 +217,6 @@ export const getFlows = createServerFn({ method: "GET" })
 const RS_BORDERS: ZoneCode[] = ["HU", "RO", "BG", "HR", "ME", "MK"];
 
 export const getFlowAnalytics = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -270,7 +266,6 @@ export const getFlowAnalytics = createServerFn({ method: "GET" })
 
 // Cross-border capacity utilization: |physical flow| / technical NTC per direction.
 export const getUtilization = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -308,7 +303,6 @@ export const getUtilization = createServerFn({ method: "GET" })
   });
 
 export const getCapacity = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -328,7 +322,6 @@ export const getCapacity = createServerFn({ method: "GET" })
   });
 
 export const getCapacityHistory = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator(
     (data: {
       from?: ZoneCode;
@@ -383,7 +376,6 @@ export const getCapacityHistory = createServerFn({ method: "GET" })
   });
 
 export const getOutages = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -399,7 +391,6 @@ export const getOutages = createServerFn({ method: "GET" })
   });
 
 export const getWeather = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -410,7 +401,6 @@ export const getWeather = createServerFn({ method: "GET" })
   });
 
 export const getBalance = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -424,7 +414,6 @@ export const getBalance = createServerFn({ method: "GET" })
   });
 
 export const runForecast = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: { horizon_h: number; history_days: number }) => data)
   .handler(async ({ data }) => {
     const histDays = Math.max(7, Math.min(365, data.history_days));
@@ -441,7 +430,6 @@ export const runForecast = createServerFn({ method: "POST" })
 
 // ---- CBC capacity resale -----------------------------------------------------
 export const getCBCComparison = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -503,7 +491,6 @@ export interface ResalePnL {
 }
 
 export const getResalePnL = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data, context }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -620,7 +607,6 @@ function monthsBetween(startISO: string, endISO: string) {
 }
 
 export const getMonthlyResaleBreakdown = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ context, data }) => {
     const { supabase, userId } = context;
@@ -792,7 +778,6 @@ export { offsetISO, todayISO };
 
 // Danube river discharge — Open-Meteo flood API, Visual Crossing precipitation as fallback proxy.
 export const getDanubeDischarge = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -861,7 +846,6 @@ async function fetchSeepexHistory(
 }
 
 export const runForecastV2 = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((data: ForecastV2Input) => data)
   .handler(async ({ data }) => {
     const product = data.product;
