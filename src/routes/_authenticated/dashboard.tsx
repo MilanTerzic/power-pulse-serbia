@@ -108,10 +108,8 @@ function OverviewPage() {
       ),
     [data],
   );
-  const defaultZones = availableZones.filter((zone) =>
-    (["RS", "HU", "RO", "BG", "ME"] as ZoneCode[]).includes(zone),
-  );
-  const activeZones = selectedZones ?? (defaultZones.length ? defaultZones : availableZones);
+  const defaultZones = availableZones.includes("RS") ? ["RS" as ZoneCode] : availableZones;
+  const activeZones = selectedZones ?? defaultZones;
 
   const importRoutes = useMemo(
     () =>
