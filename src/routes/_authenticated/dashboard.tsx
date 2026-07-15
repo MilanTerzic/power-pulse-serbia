@@ -22,6 +22,12 @@ import { daysInRange, useDateRange } from "@/lib/date-range";
 import { fmtNum, fmtPrice } from "@/lib/format";
 import { ZONES, type ZoneCode } from "@/lib/markets";
 import {
+  MARKET_PRESETS,
+  PRICE_MARKET_LIST,
+  PRICE_MARKETS,
+  type PriceMarketCode,
+} from "@/lib/price-markets";
+import {
   averagePrice,
   buildMarketSignalSummary,
   buildRouteOpportunity,
@@ -36,25 +42,18 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
   component: OverviewPage,
 });
 
-const ZONE_LINES: Array<{ key: ZoneCode; color: string }> = [
-  { key: "RS", color: "#1ec8c8" },
-  { key: "HU", color: "#5aa9e6" },
-  { key: "RO", color: "#f5b14c" },
-  { key: "BG", color: "#a78bfa" },
-  { key: "HR", color: "#34d399" },
-  { key: "BA", color: "#fb7185" },
-  { key: "ME", color: "#22d3ee" },
-  { key: "MK", color: "#fbbf24" },
-  { key: "AL", color: "#e879f9" },
-  { key: "SI", color: "#94a3b8" },
-];
+const ZONE_LINES = PRICE_MARKET_LIST.map((market) => ({
+  key: market.code,
+  color: market.chartColor,
+  label: market.displayLabel,
+}));
 
 type ChartMode = "prices" | "spreads" | "heatmap";
 
 function OverviewPage() {
   const fn = useServerFn(getDashboardSnapshot);
   const { range } = useDateRange();
-  const [selectedZones, setSelectedZones] = useState<ZoneCode[] | null>(null);
+  const [selectedZones, setSelectedZones] = useState<PriceMarketCode[] | null>(null);
   const [chartMode, setChartMode] = useState<ChartMode>("prices");
   const [healthOpen, setHealthOpen] = useState(false);
 
@@ -87,10 +86,11 @@ function OverviewPage() {
               : "Current"
             : "Partial";
       return {
-        zone: price.zone as ZoneCode,
-        label: `${price.zone} DA`,
+        zone: price.zone as PriceMarketCode,
+        label: PRICE_MARKETS[price.zone as PriceMarketCode]?.displayLabel ?? `${price.zone} DA`,
         status,
         source: price.source,
+        reason: price.reason,
         completeness: comp,
         checkedAt: price.fetched_at,
       };
@@ -101,14 +101,8 @@ function OverviewPage() {
     return { rows, label: `${current}/${rows.length} markets current` };
   }, [data?.prices, dayList]);
 
-  const availableZones = useMemo(
-    () =>
-      ZONE_LINES.map((zone) => zone.key).filter((key) =>
-        (data?.prices ?? []).some((price) => price.zone === key && price.data.points.length > 0),
-      ),
-    [data],
-  );
-  const defaultZones = availableZones.includes("RS") ? ["RS" as ZoneCode] : availableZones;
+  const allZones = ZONE_LINES.map((zone) => zone.key);
+  const defaultZones = MARKET_PRESETS.core;
   const activeZones = selectedZones ?? defaultZones;
 
   const importRoutes = useMemo(
@@ -231,7 +225,7 @@ function OverviewPage() {
               ))}
             </div>
             <ZoneSelector
-              availableZones={availableZones}
+              availableZones={allZones}
               activeZones={activeZones}
               setSelectedZones={setSelectedZones}
             />
@@ -290,7 +284,7 @@ function OverviewPage() {
                       <Line
                         key={zone.key}
                         dataKey={zone.key}
-                        name={zone.key}
+                        name={PRICE_MARKETS[zone.key].label}
                         stroke={zone.color}
                         dot={false}
                         strokeWidth={zone.key === "RS" ? 2.8 : 1.3}
@@ -348,13 +342,10 @@ function ZoneSelector({
   activeZones,
   setSelectedZones,
 }: {
-  availableZones: ZoneCode[];
-  activeZones: ZoneCode[];
-  setSelectedZones: (zones: ZoneCode[] | null) => void;
+  availableZones: PriceMarketCode[];
+  activeZones: PriceMarketCode[];
+  setSelectedZones: (zones: PriceMarketCode[] | null) => void;
 }) {
-  const directNeighbours: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "ME", "MK"].filter((zone) =>
-    availableZones.includes(zone as ZoneCode),
-  ) as ZoneCode[];
   return (
     <div className="flex flex-wrap items-center justify-end gap-1.5">
       {ZONE_LINES.filter((zone) => availableZones.includes(zone.key)).map((zone) => {
@@ -376,6 +367,7 @@ function ZoneSelector({
                 : "border-border/60 bg-surface-2 text-muted-foreground"
             }`}
             style={on ? { background: zone.color } : undefined}
+            title={zone.label}
           >
             {zone.key}
           </button>
@@ -385,7 +377,39 @@ function ZoneSelector({
         size="sm"
         variant="ghost"
         className="h-6 text-[11px]"
-        onClick={() => setSelectedZones(null)}
+        onClick={() => setSelectedZones(MARKET_PRESETS.core)}
+      >
+        Core
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 text-[11px]"
+        onClick={() => setSelectedZones(MARKET_PRESETS.directNeighbours)}
+      >
+        Direct neighbours
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 text-[11px]"
+        onClick={() => setSelectedZones(MARKET_PRESETS.regional)}
+      >
+        Regional
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 text-[11px]"
+        onClick={() => setSelectedZones(MARKET_PRESETS.europeanBenchmarks)}
+      >
+        Benchmarks
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 text-[11px]"
+        onClick={() => setSelectedZones(MARKET_PRESETS.all)}
       >
         Select all
       </Button>
@@ -393,17 +417,9 @@ function ZoneSelector({
         size="sm"
         variant="ghost"
         className="h-6 text-[11px]"
-        onClick={() => setSelectedZones(["RS"])}
+        onClick={() => setSelectedZones(MARKET_PRESETS.serbiaOnly)}
       >
         Only Serbia
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-6 text-[11px]"
-        onClick={() => setSelectedZones(directNeighbours)}
-      >
-        Direct neighbours
       </Button>
       <Button
         size="sm"
@@ -511,10 +527,11 @@ function DataHealthPanel({
   rows,
 }: {
   rows: Array<{
-    zone: ZoneCode;
+    zone: PriceMarketCode;
     label: string;
     status: string;
     source: string;
+    reason?: string;
     completeness: ReturnType<typeof completenessForSeries>;
     checkedAt: string;
   }>;
@@ -535,7 +552,9 @@ function DataHealthPanel({
           <tbody>
             {rows.map((row) => (
               <tr key={row.zone} className="border-t border-border/60">
-                <td className="py-1.5">{row.label}</td>
+                <td className="py-1.5" title={row.reason}>
+                  {row.label}
+                </td>
                 <td>{row.status}</td>
                 <td className="num">
                   {row.completeness.receivedIntervals}/{row.completeness.expectedIntervals}
@@ -564,7 +583,7 @@ function SpreadHeatmap({
   zones,
 }: {
   data: Array<Record<string, number | string | null>>;
-  zones: ZoneCode[];
+  zones: PriceMarketCode[];
 }) {
   const visibleRows = zones.filter((zone) => data.some((row) => typeof row[zone] === "number"));
   return (
@@ -656,16 +675,16 @@ function average(values: number[]) {
 
 function buildChartData(
   prices: Array<{ zone: string; data: { points: PricePoint[] } }>,
-  activeZones: ZoneCode[],
+  activeZones: PriceMarketCode[],
   mode: ChartMode,
 ) {
   const byInterval = new Map<string, Record<string, number | string | null>>();
   const rsPoints = prices.find((price) => price.zone === "RS")?.data.points ?? [];
-  const rsByInterval = new Map(rsPoints.map((point) => [localIntervalKey(point.ts), point.price]));
+  const rsByInterval = new Map(rsPoints.map((point) => [point.ts, point.price]));
   for (const zone of prices) {
-    if (!activeZones.includes(zone.zone as ZoneCode)) continue;
-    for (const [index, point] of zone.data.points.entries()) {
-      const key = localIntervalKey(point.ts);
+    if (!activeZones.includes(zone.zone as PriceMarketCode)) continue;
+    for (const point of zone.data.points) {
+      const key = point.ts;
       const row = byInterval.get(key) ?? {
         ts: point.ts,
         t: new Date(point.ts).toLocaleString("en-GB", {
@@ -677,7 +696,7 @@ function buildChartData(
           timeZone: "Europe/Belgrade",
         }),
       };
-      const rs = rsByInterval.get(key) ?? rsPoints[index]?.price;
+      const rs = rsByInterval.get(key);
       row[zone.zone] =
         mode === "spreads" || mode === "heatmap"
           ? rs == null
@@ -730,7 +749,7 @@ function localIntervalKey(ts: string) {
 
 function hasPlottedChartValues(
   rows: Record<string, number | string | null>[],
-  activeZones: ZoneCode[],
+  activeZones: PriceMarketCode[],
   mode: ChartMode,
 ) {
   const zones = mode === "prices" ? activeZones : activeZones.filter((zone) => zone !== "RS");

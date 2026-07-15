@@ -10,6 +10,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outdir = path.join(tmpdir(), "power-pulse-tests");
 const libOutdir = path.join(outdir, "lib");
 const outfile = path.join(libOutdir, "trading-calculations.mjs");
+const priceMarketsOutfile = path.join(libOutdir, "price-markets.mjs");
+const priceAnalysisOutfile = path.join(libOutdir, "price-analysis.mjs");
 
 async function transpileModule(sourcePath, outPath, replacements = []) {
   let source = await readFile(sourcePath, "utf8");
@@ -27,11 +29,18 @@ async function transpileModule(sourcePath, outPath, replacements = []) {
 
 await mkdir(libOutdir, { recursive: true });
 await transpileModule(path.join(root, "src/lib/markets.ts"), path.join(libOutdir, "markets.mjs"));
+await transpileModule(path.join(root, "src/lib/price-markets.ts"), priceMarketsOutfile);
 await transpileModule(path.join(root, "src/lib/trading-calculations.ts"), outfile, [
   ['from "./markets"', 'from "./markets.mjs"'],
 ]);
+await transpileModule(path.join(root, "src/lib/price-analysis.ts"), priceAnalysisOutfile, [
+  ['from "./price-markets"', 'from "./price-markets.mjs"'],
+  ['from "./trading-calculations"', 'from "./trading-calculations.mjs"'],
+]);
 
 const mod = await import(pathToFileURL(outfile).href);
+const priceMarkets = await import(pathToFileURL(priceMarketsOutfile).href);
+const priceAnalysis = await import(pathToFileURL(priceAnalysisOutfile).href);
 
 const points = (prices) =>
   prices.map((price, index) => ({
@@ -166,4 +175,79 @@ test("Albania is not a direct Serbian import route", () => {
     mod.DIRECT_SERBIAN_IMPORT_ROUTES.some((route) => route.from === "AL" && route.to === "RS"),
     false,
   );
+});
+
+test("all configured price markets have unique ENTSO-E EIC values", () => {
+  const eics = priceMarkets.PRICE_MARKET_LIST.map((market) => market.eic);
+  assert.equal(new Set(eics).size, eics.length);
+  assert.deepEqual(priceMarkets.PRICE_MARKET_CODES, [
+    "RS",
+    "HU",
+    "RO",
+    "BG",
+    "HR",
+    "ME",
+    "MK",
+    "SI",
+    "GR",
+    "IT_CSUD",
+    "AT",
+    "DE_LU",
+    "AL",
+  ]);
+});
+
+test("spread matching uses exact UTC timestamps and never array position fallback", () => {
+  const serbia = [
+    { ts: "2026-07-15T00:00:00.000Z", price: 100, durationMinutes: 60 },
+    { ts: "2026-07-15T01:00:00.000Z", price: 110, durationMinutes: 60 },
+  ];
+  const market = [
+    { ts: "2026-07-15T00:30:00.000Z", price: 80, durationMinutes: 60 },
+    { ts: "2026-07-15T01:00:00.000Z", price: 90, durationMinutes: 60 },
+  ];
+  const matched = priceAnalysis.matchedSpreadPoints(market, serbia);
+  assert.deepEqual(
+    matched.map((point) => point.ts),
+    ["2026-07-15T01:00:00.000Z"],
+  );
+  assert.equal(matched[0].spread, -20);
+});
+
+test("15-minute price data is counted with the correct expected interval denominator", () => {
+  const qh = Array.from({ length: 96 }, (_, index) => ({
+    ts: new Date(Date.parse("2026-01-15T00:00:00.000Z") + index * 15 * 60_000).toISOString(),
+    price: 100 + index,
+    durationMinutes: 15,
+  }));
+  const completeness = mod.completenessForSeries(qh, ["2026-01-15"]);
+  assert.equal(completeness.expectedIntervals, 96);
+  assert.equal(completeness.receivedIntervals, 96);
+});
+
+test("DST days support 23-hour and 25-hour expected interval counts", () => {
+  assert.equal(priceAnalysis.expectedIntervalsForDays(["2026-03-29"]), 23);
+  assert.equal(priceAnalysis.expectedIntervalsForDays(["2026-10-25"]), 25);
+});
+
+test("unavailable price markets retain neutral unavailable metadata", () => {
+  const status = priceAnalysis.marketAvailabilityStatus([], ["2026-07-15"], "entsoe_no_data");
+  assert.equal(status.status, "Unavailable");
+  assert.equal(status.receivedIntervals, 0);
+  assert.equal(status.reason, "entsoe_no_data");
+});
+
+test("market presets include benchmarks without adding them to direct neighbours", () => {
+  assert.deepEqual(priceAnalysis.resolveMarketPreset("europeanBenchmarks"), [
+    "RS",
+    "AT",
+    "DE_LU",
+    "IT_CSUD",
+  ]);
+  assert.equal(priceAnalysis.resolveMarketPreset("directNeighbours").includes("AT"), false);
+  assert.equal(priceAnalysis.resolveMarketPreset("directNeighbours").includes("IT_CSUD"), false);
+});
+
+test("select all action resolves to every configured price market", () => {
+  assert.deepEqual(priceAnalysis.resolveMarketPreset("all"), priceMarkets.PRICE_MARKET_CODES);
 });

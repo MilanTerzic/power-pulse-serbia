@@ -8,6 +8,7 @@ import {
   fetchExplicitAllocation,
   fetchOutages,
   fetchLoadGen,
+  validatePriceMarket,
 } from "./entsoe.server";
 import { fetchWeather, fetchRiverDischarge } from "./openmeteo.server";
 import { DANUBE_STATION_COORDS } from "./markets";
@@ -23,6 +24,7 @@ import {
   type ZoneCode,
   type ProductType,
 } from "./markets";
+import { PRICE_MARKET_CODES } from "./price-markets";
 
 const belgradeDateISO = (date = new Date()) => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -72,8 +74,27 @@ function expandRange(fromIn?: string, toIn?: string, dayIn?: string): string[] {
 
 type RangeInput = { day?: string; from?: string; to?: string };
 
-// BA has no DA/ID market — exclude from price/flow calculations.
-const DA_ZONES: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "SI", "ME", "MK", "AL"];
+const DA_ZONES = PRICE_MARKET_CODES;
+
+async function allSettledBounded<T>(
+  tasks: Array<() => Promise<T>>,
+  concurrency = 4,
+): Promise<Array<PromiseSettledResult<T>>> {
+  const out: Array<PromiseSettledResult<T>> = new Array(tasks.length);
+  let next = 0;
+  async function worker() {
+    while (next < tasks.length) {
+      const i = next++;
+      try {
+        out[i] = { status: "fulfilled", value: await tasks[i]() };
+      } catch (reason) {
+        out[i] = { status: "rejected", reason };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
+  return out;
+}
 
 export const getDashboardSnapshot = createServerFn({ method: "GET" })
   .inputValidator((data: RangeInput) => data ?? {})
@@ -81,21 +102,36 @@ export const getDashboardSnapshot = createServerFn({ method: "GET" })
     const days = expandRange(data?.from, data?.to, data?.day);
     const headDay = days[0];
 
-    const prices = await Promise.all(
-      DA_ZONES.map(async (z) => {
-        const all =
+    const priceResults = await allSettledBounded(
+      DA_ZONES.map(
+        (z) => async () =>
           days.length > 1
-            ? [await fetchDayAheadPricesRange(z, days[0], days[days.length - 1])]
-            : [await fetchDayAheadPrices(z, headDay)];
+            ? await fetchDayAheadPricesRange(z, days[0], days[days.length - 1])
+            : await fetchDayAheadPrices(z, headDay),
+      ),
+    );
+    const prices = DA_ZONES.map((z, index) => {
+      const result = priceResults[index];
+      if (result.status === "fulfilled") {
         return {
           zone: z,
-          data: { zone: z, points: all.flatMap((r) => r.data.points) },
-          source: all[0]?.source ?? "empty",
-          reason: all[0]?.reason,
-          fetched_at: all[0]?.fetched_at ?? new Date().toISOString(),
+          data: { zone: z, points: result.value.data.points },
+          source: result.value.source,
+          reason: result.value.reason,
+          fetched_at: result.value.fetched_at,
         };
-      }),
-    );
+      }
+      return {
+        zone: z,
+        data: {
+          zone: z,
+          points: [] as Array<{ ts: string; price: number; durationMinutes?: number }>,
+        },
+        source: "empty" as const,
+        reason: result.reason instanceof Error ? result.reason.message : "error",
+        fetched_at: new Date().toISOString(),
+      };
+    });
 
     const importRoutes = await Promise.all(
       IMPORT_ROUTES.map(async (r) => {
@@ -168,9 +204,9 @@ export const getAverageDAProfile = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
     const zones = DA_ZONES;
-    const out = await Promise.all(
-      zones.map(async (z) => {
-        const all = await Promise.all(days.map((d) => fetchDayAheadPrices(z, d)));
+    const outResults = await allSettledBounded(
+      zones.map((z) => async () => {
+        const all = [await fetchDayAheadPricesRange(z, days[0], days[days.length - 1])];
         const sums = new Array<number>(24).fill(0);
         const counts = new Array<number>(24).fill(0);
         for (const r of all) {
@@ -187,11 +223,51 @@ export const getAverageDAProfile = createServerFn({ method: "GET" })
           zone: z,
           profile,
           source: all[0]?.source ?? "empty",
+          reason: all[0]?.reason,
           fetched_at: all[0]?.fetched_at ?? new Date().toISOString(),
         };
       }),
     );
+    const out = zones.map((z, index) => {
+      const result = outResults[index];
+      return result.status === "fulfilled"
+        ? result.value
+        : {
+            zone: z,
+            profile: new Array<number | null>(24).fill(null),
+            source: "empty" as const,
+            reason: result.reason instanceof Error ? result.reason.message : "error",
+            fetched_at: new Date().toISOString(),
+          };
+    });
     return { from: days[0], to: days[days.length - 1], zones, rows: out };
+  });
+
+export const validatePriceMarkets = createServerFn({ method: "GET" })
+  .inputValidator((data: { day?: string }) => data ?? {})
+  .handler(async ({ data }) => {
+    const day = clean(data?.day) ?? offsetISO(-1);
+    const results = await allSettledBounded(
+      PRICE_MARKET_CODES.map((market) => () => validatePriceMarket(market, day)),
+    );
+    return {
+      day,
+      rows: PRICE_MARKET_CODES.map((market, index) => {
+        const result = results[index];
+        return result.status === "fulfilled"
+          ? result.value
+          : {
+              market,
+              eic: "",
+              intervals: 0,
+              intervalResolutionMinutes: null,
+              firstTimestamp: null,
+              lastTimestamp: null,
+              source: "empty" as const,
+              reason: result.reason instanceof Error ? result.reason.message : "error",
+            };
+      }),
+    };
   });
 
 export const getFlows = createServerFn({ method: "GET" })

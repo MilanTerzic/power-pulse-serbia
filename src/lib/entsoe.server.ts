@@ -8,6 +8,7 @@ import {
   type ZoneCode,
   type ProductType,
 } from "./markets";
+import { PRICE_MARKETS, type PriceMarketCode } from "./price-markets";
 
 const API_BASE = "https://web-api.tp.entsoe.eu/api";
 const DEFAULT_TTL = 1800;
@@ -124,17 +125,44 @@ async function cacheSet(key: string, payload: unknown, ttl = DEFAULT_TTL) {
   });
 }
 
+function isRetryableEntsoeStatus(status: number) {
+  return status === 429 || status >= 500;
+}
+
 async function entsoeRaw(params: Record<string, string>): Promise<string> {
   const t = token();
   if (!t) throw new Error("ENTSOE_API_TOKEN missing");
   const qs = new URLSearchParams({ securityToken: t, ...params });
   const url = `${API_BASE}?${qs.toString()}`;
-  const res = await fetch(url, { headers: { Accept: "application/xml" } });
-  if (res.status === 200) return await res.text();
-  if (res.status === 400) throw new Error("entsoe_no_data");
-  if (res.status === 401) throw new Error("entsoe_unauthorized");
-  if (res.status === 429) throw new Error("entsoe_rate_limited");
-  throw new Error(`entsoe_http_${res.status}`);
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12_000);
+    try {
+      const res = await fetch(url, {
+        headers: { Accept: "application/xml" },
+        signal: controller.signal,
+      });
+      lastStatus = res.status;
+      if (res.status === 200) return await res.text();
+      if (!isRetryableEntsoeStatus(res.status) || attempt === 1) {
+        if (res.status === 400) throw new Error("entsoe_no_data");
+        if (res.status === 401 || res.status === 403) throw new Error("entsoe_unauthorized");
+        if (res.status === 429) throw new Error("entsoe_rate_limited");
+        throw new Error(`entsoe_http_${res.status}`);
+      }
+    } catch (error) {
+      if (attempt === 1) {
+        if (error instanceof Error && error.name === "AbortError")
+          throw new Error("entsoe_timeout");
+        throw error;
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400 * 2 ** attempt));
+  }
+  throw new Error(`entsoe_http_${lastStatus || "unknown"}`);
 }
 
 // --- Tiny XML utilities -----------------------------------------------------
@@ -256,16 +284,16 @@ function parseAllocationSummary(xml: string): {
 
 // --- Public fetchers --------------------------------------------------------
 export interface PriceSeries {
-  zone: ZoneCode;
+  zone: PriceMarketCode;
   points: Array<{ ts: string; price: number }>;
 }
 export interface IntervalPriceSeries {
-  zone: ZoneCode;
+  zone: PriceMarketCode;
   points: Array<{ ts: string; price: number; durationMinutes: number }>;
 }
 
 export async function fetchDayAheadPrices(
-  zone: ZoneCode,
+  zone: PriceMarketCode,
   dayISO: string,
   demo = false,
   force = false,
@@ -284,8 +312,8 @@ export async function fetchDayAheadPrices(
     const { start, end } = belgradeDeliveryWindow(dayISO);
     const xml = await entsoeRaw({
       documentType: ENTSOE_DOCUMENT_TYPES.day_ahead_prices,
-      in_Domain: ZONES[zone].eic,
-      out_Domain: ZONES[zone].eic,
+      in_Domain: PRICE_MARKETS[zone].eic,
+      out_Domain: PRICE_MARKETS[zone].eic,
       periodStart: ymdh(start),
       periodEnd: ymdh(end),
     });
@@ -309,7 +337,7 @@ export async function fetchDayAheadPrices(
 }
 
 export async function fetchDayAheadPricesRange(
-  zone: ZoneCode,
+  zone: PriceMarketCode,
   fromISO: string,
   toISO: string,
   demo = false,
@@ -325,36 +353,88 @@ export async function fetchDayAheadPricesRange(
   if (demo) return staleCacheOrEmpty(key, emptyData, "demo_disabled");
   if (!token()) return staleCacheOrEmpty(key, emptyData, "no_token");
   try {
-    const startOffsetH = cetOffsetHours(fromISO);
-    const start = new Date(Date.parse(fromISO + "T00:00:00Z") - startOffsetH * 3600_000);
-    const afterTo = new Date(Date.parse(toISO + "T00:00:00Z") + 24 * 3600_000)
-      .toISOString()
-      .slice(0, 10);
-    const endOffsetH = cetOffsetHours(afterTo);
-    const end = new Date(Date.parse(afterTo + "T00:00:00Z") - endOffsetH * 3600_000);
-    const xml = await entsoeRaw({
-      documentType: ENTSOE_DOCUMENT_TYPES.day_ahead_prices,
-      in_Domain: ZONES[zone].eic,
-      out_Domain: ZONES[zone].eic,
-      periodStart: ymdh(start),
-      periodEnd: ymdh(end),
-    });
-    const startMs = start.getTime();
-    const endMs = end.getTime();
-    const points = parseTimeSeriesIntervals(xml)
-      .filter((p) => {
-        const t = Date.parse(p.ts);
-        return t >= startMs && t < endMs;
-      })
-      .map((p) => ({ ts: p.ts, price: p.value, durationMinutes: p.durationMinutes }));
+    const points: IntervalPriceSeries["points"] = [];
+    for (const chunk of chunkDateRange(fromISO, toISO, 92)) {
+      const startOffsetH = cetOffsetHours(chunk.from);
+      const start = new Date(Date.parse(chunk.from + "T00:00:00Z") - startOffsetH * 3600_000);
+      const afterTo = new Date(Date.parse(chunk.to + "T00:00:00Z") + 24 * 3600_000)
+        .toISOString()
+        .slice(0, 10);
+      const endOffsetH = cetOffsetHours(afterTo);
+      const end = new Date(Date.parse(afterTo + "T00:00:00Z") - endOffsetH * 3600_000);
+      const xml = await entsoeRaw({
+        documentType: ENTSOE_DOCUMENT_TYPES.day_ahead_prices,
+        in_Domain: PRICE_MARKETS[zone].eic,
+        out_Domain: PRICE_MARKETS[zone].eic,
+        periodStart: ymdh(start),
+        periodEnd: ymdh(end),
+      });
+      const startMs = start.getTime();
+      const endMs = end.getTime();
+      points.push(
+        ...parseTimeSeriesIntervals(xml)
+          .filter((p) => {
+            const t = Date.parse(p.ts);
+            return t >= startMs && t < endMs;
+          })
+          .map((p) => ({ ts: p.ts, price: p.value, durationMinutes: p.durationMinutes })),
+      );
+    }
     if (!points.length) return staleCacheOrEmpty(key, emptyData, "no_data");
-    const payload = { zone, points };
+    const byTs = new Map(points.map((point) => [point.ts, point]));
+    const payload = {
+      zone,
+      points: [...byTs.values()].sort((a, b) => a.ts.localeCompare(b.ts)),
+    };
     await cacheSet(key, payload, ttl);
     return { data: payload, source: "live", fetched_at: new Date().toISOString() };
   } catch (e) {
     const reason = e instanceof Error ? e.message : "error";
     return staleCacheOrEmpty(key, emptyData, reason);
   }
+}
+
+function chunkDateRange(fromISO: string, toISO: string, maxDays: number) {
+  const chunks: Array<{ from: string; to: string }> = [];
+  let cur = Date.parse(fromISO + "T00:00:00Z");
+  const end = Date.parse(toISO + "T00:00:00Z");
+  while (cur <= end) {
+    const chunkEnd = Math.min(end, cur + (maxDays - 1) * 86400_000);
+    chunks.push({
+      from: new Date(cur).toISOString().slice(0, 10),
+      to: new Date(chunkEnd).toISOString().slice(0, 10),
+    });
+    cur = chunkEnd + 86400_000;
+  }
+  return chunks;
+}
+
+export async function validatePriceMarket(
+  zone: PriceMarketCode,
+  dayISO: string,
+): Promise<{
+  market: PriceMarketCode;
+  eic: string;
+  intervals: number;
+  intervalResolutionMinutes: number | null;
+  firstTimestamp: string | null;
+  lastTimestamp: string | null;
+  source: FetchResult<IntervalPriceSeries>["source"];
+  reason?: string;
+}> {
+  const result = await fetchDayAheadPricesRange(zone, dayISO, dayISO);
+  const points = result.data.points;
+  const resolutions = [...new Set(points.map((point) => point.durationMinutes))];
+  return {
+    market: zone,
+    eic: PRICE_MARKETS[zone].eic,
+    intervals: points.length,
+    intervalResolutionMinutes: resolutions.length === 1 ? resolutions[0] : null,
+    firstTimestamp: points[0]?.ts ?? null,
+    lastTimestamp: points[points.length - 1]?.ts ?? null,
+    source: result.source,
+    reason: result.reason,
+  };
 }
 
 export interface FlowSeries {

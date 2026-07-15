@@ -18,6 +18,7 @@ import {
   type CapacityRow,
   type FetchResult,
 } from "./entsoe.server";
+import type { PriceMarketCode } from "./price-markets";
 import {
   REPORT_TZ,
   addDaysISO,
@@ -73,7 +74,8 @@ type CapacityFetch = FetchResult<CapacityRow> & {
   product: ProductType;
 };
 
-const DA_ZONES: ZoneCode[] = ["RS", "HU", "RO", "BG", "HR", "SI", "ME", "MK", "AL"];
+type ReportPriceZone = Extract<ZoneCode, PriceMarketCode>;
+const DA_ZONES: ReportPriceZone[] = ["RS", "HU", "RO", "BG", "HR", "SI", "ME", "MK", "AL"];
 const REPORT_VERSION = "v1";
 
 function validDate(v?: string): v is string {
@@ -221,7 +223,7 @@ function routeEconomics(args: {
   const rs = new Map((args.pricesByZone.RS ?? []).map((p) => [p.ts, p]));
   const actualSerbiaBorders = UNDIRECTED_BORDERS.filter(([a, b]) => a === "RS" || b === "RS")
     .map(([a, b]) => (a === "RS" ? b : a))
-    .filter((z): z is ZoneCode => DA_ZONES.includes(z) && z !== "BA");
+    .filter((z): z is ReportPriceZone => DA_ZONES.includes(z as ReportPriceZone));
 
   const rows: RouteEconomicsRow[] = [];
   for (const neighbour of actualSerbiaBorders) {
@@ -514,7 +516,7 @@ export const getTraderReport = createServerFn({ method: "GET" })
       zone,
       avg: mean((tomorrowByZone[zone] ?? []).map((p) => p.price)),
     }))
-      .filter((r): r is { zone: ZoneCode; avg: number } => r.avg != null)
+      .filter((r): r is { zone: ReportPriceZone; avg: number } => r.avg != null)
       .sort((a, b) => a.avg - b.avg);
 
     const coverage: CoverageRow[] = [
