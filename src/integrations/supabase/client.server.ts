@@ -9,6 +9,7 @@ type NoopQuery = {
   select: () => NoopQuery;
   eq: () => NoopQuery;
   order: () => NoopQuery;
+  limit: () => NoopQuery;
   insert: () => NoopQuery;
   update: () => NoopQuery;
   delete: () => NoopQuery;
@@ -23,6 +24,7 @@ function createNoopSupabaseAdminClient() {
       select: () => query,
       eq: () => query,
       order: () => query,
+      limit: () => query,
       insert: () => query,
       update: () => query,
       delete: () => query,
