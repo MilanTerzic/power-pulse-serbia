@@ -20,6 +20,7 @@ import { Route as AuthenticatedReportRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedPricesRouteImport } from './routes/_authenticated/prices'
 import { Route as AuthenticatedOutagesRouteImport } from './routes/_authenticated/outages'
 import { Route as AuthenticatedMapRouteImport } from './routes/_authenticated/map'
+import { Route as AuthenticatedFuturesRouteImport } from './routes/_authenticated/futures'
 import { Route as AuthenticatedForecastRouteImport } from './routes/_authenticated/forecast'
 import { Route as AuthenticatedFlowsRouteImport } from './routes/_authenticated/flows'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
@@ -83,6 +84,11 @@ const AuthenticatedMapRoute = AuthenticatedMapRouteImport.update({
   path: '/map',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedFuturesRoute = AuthenticatedFuturesRouteImport.update({
+  id: '/futures',
+  path: '/futures',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedForecastRoute = AuthenticatedForecastRouteImport.update({
   id: '/forecast',
   path: '/forecast',
@@ -129,6 +135,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/flows': typeof AuthenticatedFlowsRoute
   '/forecast': typeof AuthenticatedForecastRoute
+  '/futures': typeof AuthenticatedFuturesRoute
   '/map': typeof AuthenticatedMapRoute
   '/outages': typeof AuthenticatedOutagesRoute
   '/prices': typeof AuthenticatedPricesRoute
@@ -148,6 +155,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/flows': typeof AuthenticatedFlowsRoute
   '/forecast': typeof AuthenticatedForecastRoute
+  '/futures': typeof AuthenticatedFuturesRoute
   '/map': typeof AuthenticatedMapRoute
   '/outages': typeof AuthenticatedOutagesRoute
   '/prices': typeof AuthenticatedPricesRoute
@@ -169,6 +177,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/flows': typeof AuthenticatedFlowsRoute
   '/_authenticated/forecast': typeof AuthenticatedForecastRoute
+  '/_authenticated/futures': typeof AuthenticatedFuturesRoute
   '/_authenticated/map': typeof AuthenticatedMapRoute
   '/_authenticated/outages': typeof AuthenticatedOutagesRoute
   '/_authenticated/prices': typeof AuthenticatedPricesRoute
@@ -190,6 +199,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/flows'
     | '/forecast'
+    | '/futures'
     | '/map'
     | '/outages'
     | '/prices'
@@ -209,6 +219,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/flows'
     | '/forecast'
+    | '/futures'
     | '/map'
     | '/outages'
     | '/prices'
@@ -229,6 +240,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/flows'
     | '/_authenticated/forecast'
+    | '/_authenticated/futures'
     | '/_authenticated/map'
     | '/_authenticated/outages'
     | '/_authenticated/prices'
@@ -324,6 +336,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMapRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/futures': {
+      id: '/_authenticated/futures'
+      path: '/futures'
+      fullPath: '/futures'
+      preLoaderRoute: typeof AuthenticatedFuturesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/forecast': {
       id: '/_authenticated/forecast'
       path: '/forecast'
@@ -384,6 +403,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedFlowsRoute: typeof AuthenticatedFlowsRoute
   AuthenticatedForecastRoute: typeof AuthenticatedForecastRoute
+  AuthenticatedFuturesRoute: typeof AuthenticatedFuturesRoute
   AuthenticatedMapRoute: typeof AuthenticatedMapRoute
   AuthenticatedOutagesRoute: typeof AuthenticatedOutagesRoute
   AuthenticatedPricesRoute: typeof AuthenticatedPricesRoute
@@ -402,6 +422,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedFlowsRoute: AuthenticatedFlowsRoute,
   AuthenticatedForecastRoute: AuthenticatedForecastRoute,
+  AuthenticatedFuturesRoute: AuthenticatedFuturesRoute,
   AuthenticatedMapRoute: AuthenticatedMapRoute,
   AuthenticatedOutagesRoute: AuthenticatedOutagesRoute,
   AuthenticatedPricesRoute: AuthenticatedPricesRoute,

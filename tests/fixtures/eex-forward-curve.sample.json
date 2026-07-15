@@ -1,0 +1,48 @@
+{
+  "tradingDate": "2026-07-14",
+  "sourceTimestamp": "2026-07-14T18:30:00Z",
+  "rows": [
+    {
+      "externalProductId": "SANITISED-RS-POWER-FUTURE",
+      "externalContractId": "RS-BL-M-2026-08",
+      "contractName": "Aug 2026",
+      "loadType": "base",
+      "maturityType": "month",
+      "deliveryStart": "2026-08-01",
+      "deliveryEnd": "2026-08-31",
+      "settlementPrice": 112.45,
+      "previousSettlementPrice": 111.2,
+      "lastPrice": 112.1,
+      "volume": 5,
+      "openInterest": 21
+    },
+    {
+      "externalProductId": "SANITISED-RS-POWER-FUTURE",
+      "externalContractId": "RS-PK-Q-2026-04",
+      "contractName": "Q4 2026",
+      "loadType": "peak",
+      "maturityType": "quarter",
+      "deliveryStart": "2026-10-01",
+      "deliveryEnd": "2026-12-31",
+      "settlementPrice": null,
+      "lastPrice": 130.5,
+      "bidPrice": 129.4,
+      "askPrice": 131.2
+    },
+    {
+      "externalProductId": "SANITISED-RS-POWER-FUTURE",
+      "externalContractId": "RS-BL-M-2026-08",
+      "contractName": "Aug 2026 duplicate",
+      "loadType": "base",
+      "maturityType": "month",
+      "deliveryStart": "2026-08-01",
+      "deliveryEnd": "2026-08-31",
+      "settlementPrice": 113
+    },
+    {
+      "externalProductId": "SANITISED-RS-POWER-FUTURE",
+      "externalContractId": "BAD-ROW",
+      "contractName": "Malformed"
+    }
+  ]
+}

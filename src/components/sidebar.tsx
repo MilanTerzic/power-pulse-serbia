@@ -16,6 +16,7 @@ import {
   LogOut,
   Gauge,
   FileChartColumn,
+  CandlestickChart,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { signOut as signOutSession } from "@/lib/auth";
@@ -24,6 +25,7 @@ const NAV = [
   { to: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { to: "/report", label: "Trader Report", icon: FileChartColumn },
   { to: "/prices", label: "Prices", icon: LineChart },
+  { to: "/futures", label: "Futures", icon: CandlestickChart },
   { to: "/spreads", label: "Spreads", icon: ArrowLeftRight },
   { to: "/map", label: "Route Map", icon: Map },
   { to: "/capacity", label: "Capacity", icon: Plug },
