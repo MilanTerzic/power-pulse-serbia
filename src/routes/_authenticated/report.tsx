@@ -265,7 +265,7 @@ function TraderReportPage() {
         onRefresh={() => q.refetch()}
         lastRefresh={report?.generatedAt}
       />
-      <div ref={reportExportRef} className="p-6 space-y-5 report-print-root">
+      <div ref={reportExportRef} className="p-5 space-y-4 report-print-root">
         <Panel
           dense
           title="Report period"
@@ -416,7 +416,7 @@ function TraderReportPage() {
               )}
             </Panel>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2.5">
               <KPI
                 label="RS baseload"
                 value={fmtPrice(rs?.baseload)}
@@ -449,7 +449,7 @@ function TraderReportPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2.5">
               <KPI
                 label="RS imports"
                 value={`${fmtNum((rsPos?.totals.importsMwh ?? null) == null ? null : rsPos!.totals.importsMwh! / 1000)} GWh`}
@@ -492,7 +492,7 @@ function TraderReportPage() {
                 />
               }
             >
-              <div className="h-80">
+              <div className="h-64">
                 <ResponsiveContainer>
                   <LineChart data={dailyChart} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
                     <CartesianGrid stroke="var(--color-grid)" strokeDasharray="3 3" />
@@ -529,7 +529,7 @@ function TraderReportPage() {
               </div>
             </Panel>
 
-            <Panel title="Hourly DA Prices">
+            <Panel title="Hourly DA Prices" data-jpeg-hidden="true">
               <details>
                 <summary className="text-xs text-muted-foreground cursor-pointer mb-3">
                   Show hourly multi-market chart
@@ -571,7 +571,7 @@ function TraderReportPage() {
               </details>
             </Panel>
 
-            <div className="grid xl:grid-cols-2 gap-5">
+            <div className="grid xl:grid-cols-2 gap-5" data-jpeg-hidden="true">
               <Panel title="Serbia Price Heatmap">
                 <PriceHeatmap points={report.prices.rsHeatmap} />
               </Panel>
@@ -613,8 +613,8 @@ function TraderReportPage() {
                 tolerance of max(10 MWh, 0.1% of daily cross-border energy). It is not official
                 balancing-system imbalance.
               </p>
-              <div className="grid xl:grid-cols-2 gap-5">
-                <div className="h-72">
+              <div className="grid xl:grid-cols-[0.9fr_1.1fr] gap-4">
+                <div className="h-56">
                   <ResponsiveContainer>
                     <BarChart data={netPositionChart}>
                       <CartesianGrid stroke="var(--color-grid)" strokeDasharray="3 3" />
@@ -640,7 +640,7 @@ function TraderReportPage() {
               </div>
             </Panel>
 
-            <Panel title="Cross-Border Flow Analytics">
+            <Panel title="Cross-Border Flow Analytics" data-jpeg-hidden="true">
               <div className="flex gap-2 mb-3 print:hidden">
                 <TabButton active={flowTab === "RS"} onClick={() => setFlowTab("RS")}>
                   Serbia borders
@@ -655,7 +655,7 @@ function TraderReportPage() {
               <FlowTable rows={flowRows as unknown as Array<Record<string, unknown>>} />
             </Panel>
 
-            <Panel title="Cross-Border Capacity Prices">
+            <Panel title="Cross-Border Capacity Prices" data-jpeg-hidden="true">
               <CapacityTable
                 daily={report.capacity.daily as unknown as Array<Record<string, unknown>>}
                 monthly={report.capacity.monthly as unknown as Array<Record<string, unknown>>}
@@ -666,7 +666,7 @@ function TraderReportPage() {
               <p className="text-[11px] text-muted-foreground mb-3">
                 {report.routeEconomics.disclaimer}
               </p>
-              <div className="grid xl:grid-cols-2 gap-5 mb-4">
+              <div className="grid xl:grid-cols-2 gap-4">
                 <OpportunityList
                   title="Top 5 import opportunities"
                   rows={
@@ -680,12 +680,19 @@ function TraderReportPage() {
                   }
                 />
               </div>
-              <RouteTable
-                rows={report.routeEconomics.rows as unknown as Array<Record<string, unknown>>}
-              />
+              <details className="mt-4" data-jpeg-hidden="true">
+                <summary className="text-xs text-muted-foreground cursor-pointer">
+                  Show all route economics
+                </summary>
+                <div className="mt-3">
+                  <RouteTable
+                    rows={report.routeEconomics.rows as unknown as Array<Record<string, unknown>>}
+                  />
+                </div>
+              </details>
             </Panel>
 
-            <Panel title="Data Coverage and Sources">
+            <Panel title="Data Coverage and Sources" data-jpeg-hidden="true">
               <details open>
                 <summary className="text-xs text-muted-foreground cursor-pointer mb-3">
                   Show dataset coverage
