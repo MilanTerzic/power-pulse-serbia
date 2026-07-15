@@ -1,0 +1,5 @@
+settlement_price,trading_date,delivery_end,delivery_start,load_type,contract,market,volume
+"95,20",2026-07-15,2027-12-31,2027-01-01,base,Cal-27,RS,
+92.40,2026-07-15,2027-12-31,2027-01-01,base,Cal-27,HU,12
+,2026-07-15,2026-09-30,2026-07-01,peak,Q3-26,RS,
+95.20,2026-07-15,2027-12-31,2027-01-01,base,Cal-27,RS,

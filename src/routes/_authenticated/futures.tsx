@@ -11,12 +11,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { AlertTriangle, Download } from "lucide-react";
+import { AlertTriangle, Download, RefreshCw, Upload } from "lucide-react";
 import { TopBar } from "@/components/top-bar";
 import { Panel } from "@/components/panel";
 import { KPI } from "@/components/kpi";
 import { Button } from "@/components/ui/button";
-import { getFuturesDashboard } from "@/lib/eex-futures.server";
+import {
+  getFuturesDashboard,
+  importManualFuturesData,
+  refreshPublicFuturesSnapshots,
+} from "@/lib/eex-futures.server";
 import {
   FUTURES_PRESETS,
   type FuturesLoadType,
@@ -54,6 +58,8 @@ const EMPTY_MARKETS: Awaited<ReturnType<typeof getFuturesDashboard>>["markets"] 
 
 function FuturesPage() {
   const fn = useServerFn(getFuturesDashboard);
+  const importFn = useServerFn(importManualFuturesData);
+  const refreshPublicFn = useServerFn(refreshPublicFuturesSnapshots);
   const [selectedMarket, setSelectedMarket] = useState<FuturesMarketCode>("RS");
   const [selectedMarkets, setSelectedMarkets] = useState<FuturesMarketCode[]>(
     FUTURES_PRESETS.directRegion,
@@ -62,6 +68,8 @@ function FuturesPage() {
   const [maturityFilter, setMaturityFilter] = useState<"combined" | FuturesMaturityType>(
     "combined",
   );
+  const [manualText, setManualText] = useState("");
+  const [importResult, setImportResult] = useState<string | null>(null);
 
   const q = useQuery({
     queryKey: ["futures_dashboard"],
@@ -73,6 +81,7 @@ function FuturesPage() {
 
   const curves = q.data?.curves ?? EMPTY_CURVES;
   const markets = q.data?.markets ?? EMPTY_MARKETS;
+  const history = q.data?.history ?? [];
   const selectedCurve = curves.find((curve) => curve.market === selectedMarket);
   const selectedRows = filterContracts(selectedCurve?.contracts ?? [], loadType, maturityFilter);
   const allRows = curves.flatMap((curve) => curve.contracts);
@@ -120,6 +129,13 @@ function FuturesPage() {
       contracts: curve?.contracts.length ?? 0,
     };
   });
+  const historyRows = buildHistoryRows(history, selectedMarket, loadType);
+  const latestStatus =
+    q.data?.provider === "eex-datasource"
+      ? "Licensed EEX DataSource"
+      : q.data?.latestTradingDate
+        ? "Cached public snapshot"
+        : "No data collected yet";
 
   return (
     <>
@@ -132,23 +148,45 @@ function FuturesPage() {
         hideRange
       />
       <div className="space-y-5 p-4 md:p-6">
-        <Panel title="EEX data connection">
+        <Panel title="Public EEX Snapshot Mode">
           <div className="flex flex-col gap-3 text-sm text-muted-foreground md:flex-row md:items-start md:justify-between">
             <div className="flex gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-info" />
               <div>
-                <p className="font-medium text-foreground">EEX DataSource connection required</p>
+                <p className="font-medium text-foreground">Public EEX Snapshot Mode</p>
                 <p className="mt-1 max-w-4xl">
-                  This module is wired for licensed EEX Group DataSource / DataSource File Cloud
-                  data. Set server-side `EEX_DATASOURCE_API_URL` and `EEX_DATASOURCE_ACCESS_TOKEN`,
-                  then configure the approved endpoint mapping. No public web scrape, proxy curve or
-                  fabricated price is used.
+                  The dashboard uses periodic snapshots of publicly displayed EEX Market Data Hub
+                  information. This is not a licensed real-time EEX DataSource feed.
+                </p>
+                <p className="mt-1 max-w-4xl">
+                  Source reference: EEX Market Data Hub. Data displayed as periodic analytical
+                  snapshots. For information and analytical purposes. Verify prices through an
+                  authorised market-data source before trading or commercial use.
                 </p>
               </div>
             </div>
-            <span className="rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] uppercase tracking-wider text-warning">
-              Configuration required
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill label={latestStatus} />
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                disabled={q.isFetching}
+                onClick={async () => {
+                  await refreshPublicFn();
+                  await q.refetch();
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Refresh snapshot
+              </Button>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-4">
+            <Metric label="Provider" value={q.data?.provider ?? "eex-public-snapshot"} />
+            <Metric label="Latest trading date" value={q.data?.latestTradingDate ?? "N/A"} />
+            <Metric label="Latest collection" value={formatDateTime(q.data?.latestCollectionAt)} />
+            <Metric label="History since" value={q.data?.firstHistoricalDate ?? "N/A"} />
           </div>
         </Panel>
 
@@ -251,7 +289,7 @@ function FuturesPage() {
               </ResponsiveContainer>
             </div>
             {!comparisonData.length && (
-              <EmptyState text="Equivalent contract comparison will appear after licensed EEX curve data is collected." />
+              <EmptyState text="Equivalent contract comparison will appear after public or manually imported snapshots are stored." />
             )}
           </Panel>
 
@@ -260,8 +298,15 @@ function FuturesPage() {
               <Metric label="Curve shape" value={classifyCurveShape(rsRows)} />
               <Metric label="Serbia vs Hungary front-year" value={fmtPrice(rsHuSpread)} />
               <Metric label="Serbia vs Germany front-year" value={fmtPrice(rsDeSpread)} />
-              <Metric label="History source" value="EEX DataSource or local daily snapshots" />
-              <Metric label="Historical records" value="Available after first collection" />
+              <Metric label="History source" value="Public EEX snapshots or manual imports" />
+              <Metric
+                label="Historical records"
+                value={
+                  q.data?.firstHistoricalDate
+                    ? `Available since ${q.data.firstHistoricalDate}`
+                    : "No data collected yet"
+                }
+              />
             </div>
           </Panel>
         </div>
@@ -319,7 +364,70 @@ function FuturesPage() {
         </Panel>
 
         <Panel title="Contract price history">
-          <EmptyState text="Historical settlement, rolling contracts and roll markers will populate from licensed EEX historical backfill or locally collected daily snapshots." />
+          <p className="mb-3 text-xs text-muted-foreground">
+            Historical futures prices are based on public EEX snapshots collected by this
+            application. History available since {q.data?.firstHistoricalDate ?? "N/A"}.
+          </p>
+          <div className="h-64">
+            <ResponsiveContainer>
+              <LineChart data={historyRows}>
+                <CartesianGrid stroke="var(--color-grid)" strokeDasharray="3 3" />
+                <XAxis dataKey="tradingDate" stroke="var(--color-muted-foreground)" fontSize={11} />
+                <YAxis stroke="var(--color-muted-foreground)" fontSize={11} unit=" EUR" />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                />
+                <Line
+                  dataKey="price"
+                  name="Historical price"
+                  stroke="var(--color-primary)"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          {!historyRows.length && (
+            <EmptyState text="No local futures history for the selected market/load yet." />
+          )}
+        </Panel>
+
+        <Panel title="Import futures data">
+          <div className="grid gap-3 lg:grid-cols-[1fr_260px]">
+            <textarea
+              value={manualText}
+              onChange={(event) => setManualText(event.target.value)}
+              className="min-h-32 rounded border border-border/60 bg-surface-2 p-3 font-mono text-xs"
+              placeholder={
+                "market,contract,load_type,delivery_start,delivery_end,trading_date,settlement_price\nRS,Cal-27,base,2027-01-01,2027-12-31,2026-07-15,95.20"
+              }
+            />
+            <div className="space-y-3 text-xs text-muted-foreground">
+              <p>
+                Paste CSV or a copied table. Values are stored as Manually imported futures
+                reference data and are not labelled as live EEX data.
+              </p>
+              <Button
+                className="gap-1.5"
+                disabled={!manualText.trim()}
+                onClick={async () => {
+                  const result = await importFn({ data: { text: manualText } });
+                  setImportResult(`Imported ${result.imported} validated rows.`);
+                  setManualText("");
+                  await q.refetch();
+                }}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Import futures data
+              </Button>
+              {importResult && <p className="text-primary">{importResult}</p>}
+            </div>
+          </div>
         </Panel>
 
         <Panel
@@ -391,8 +499,8 @@ function FuturesPage() {
               ) : (
                 <tr>
                   <td colSpan={17} className="py-6 text-center text-xs text-muted-foreground">
-                    No futures contracts loaded. Configure EEX DataSource access to enable live
-                    curves.
+                    No futures contracts loaded. Use public snapshot refresh or import reference
+                    data.
                   </td>
                 </tr>
               )}
@@ -594,6 +702,59 @@ function Metric({ label, value }: { label: string; value: string }) {
       <span className="num text-right text-foreground">{value}</span>
     </div>
   );
+}
+
+function StatusPill({ label }: { label: string }) {
+  return (
+    <span className="rounded border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] uppercase tracking-wider text-primary">
+      {label}
+    </span>
+  );
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "N/A";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "N/A";
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Belgrade",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function buildHistoryRows(
+  history: Array<{
+    market: string;
+    loadType: string;
+    tradingDate: string;
+    settlementPrice: number | null;
+    closePrice: number | null;
+    lastPrice: number | null;
+    bidPrice: number | null;
+    askPrice: number | null;
+    contract: string;
+  }>,
+  market: FuturesMarketCode,
+  loadType: FuturesLoadType,
+) {
+  return history
+    .filter((row) => row.market === market && row.loadType === loadType)
+    .map((row) => ({
+      tradingDate: row.tradingDate,
+      contract: row.contract,
+      price:
+        row.settlementPrice ??
+        row.closePrice ??
+        row.lastPrice ??
+        row.bidPrice ??
+        row.askPrice ??
+        null,
+    }))
+    .filter((row) => row.price != null)
+    .sort((a, b) => a.tradingDate.localeCompare(b.tradingDate));
 }
 
 function WideTable({ children }: { children: React.ReactNode }) {

@@ -2,7 +2,8 @@ export type FuturesMarketCode =
   "RS" | "HU" | "RO" | "BG" | "HR" | "SI" | "GR" | "IT" | "AT" | "DE_LU" | "ME" | "MK" | "AL";
 
 export type FuturesLoadType = "base" | "peak";
-export type FuturesMaturityType = "day" | "weekend" | "week" | "month" | "quarter" | "year";
+export type FuturesMaturityType =
+  "day" | "weekend" | "week" | "month" | "quarter" | "year" | "other";
 export type FuturesSourceStatus =
   | "live"
   | "current-eod"
@@ -13,7 +14,9 @@ export type FuturesSourceStatus =
   | "authentication-required"
   | "subscription-required"
   | "unsupported-product"
-  | "configuration-required";
+  | "configuration-required"
+  | "public-extraction-unavailable"
+  | "manual-import";
 
 export interface FuturesMarket {
   code: FuturesMarketCode;

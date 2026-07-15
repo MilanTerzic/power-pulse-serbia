@@ -1,11 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import {
-  FUTURES_MARKETS,
-  type FuturesLoadType,
-  type FuturesMarketCode,
-  type FuturesMaturityType,
-} from "./futures-markets";
+import { FUTURES_MARKETS, type FuturesMarketCode } from "./futures-markets";
 import {
   type ForwardCurve,
   type FuturesContract,
@@ -13,8 +8,45 @@ import {
   type FuturesHistoryPoint,
 } from "./futures";
 import { parseEexForwardCurvePayload } from "./futures-parser";
+import { confirmedSnapshots, parseManualFuturesCsv } from "./futures-public-parser";
+import {
+  collectPublicEexSnapshots,
+  EexPublicSnapshotProvider,
+  upsertFuturesSnapshots,
+} from "./futures/eex-public-snapshot.server";
 
 const CACHE_TTL_SECONDS = 6 * 3600;
+
+type StoredFuturesSnapshotRow = {
+  provider: string;
+  market_code: string;
+  contract_name: string;
+  external_contract_id: string | null;
+  load_type: string;
+  maturity_type: string;
+  delivery_start: string | null;
+  delivery_end: string | null;
+  trading_date: string;
+  settlement_price: number | null;
+  close_price: number | null;
+  last_price: number | null;
+  bid_price: number | null;
+  ask_price: number | null;
+  volume: number | null;
+  open_interest: number | null;
+  collected_at: string;
+};
+
+type SelectQuery<T> = {
+  select: (columns?: string) => SelectQuery<T>;
+  order: (
+    column: string,
+    options?: { ascending?: boolean },
+  ) => Promise<{
+    data: T[] | null;
+    error: unknown;
+  }>;
+};
 
 function nowISO() {
   return new Date().toISOString();
@@ -65,6 +97,8 @@ async function cacheSet(key: string, payload: unknown) {
 }
 
 export class EexDataSourceProvider implements FuturesDataProvider {
+  providerType = "eex-datasource" as const;
+
   async getForwardCurve(market: FuturesMarketCode, tradingDate?: string): Promise<ForwardCurve> {
     const marketConfig = FUTURES_MARKETS[market];
     if (!marketConfig.available) {
@@ -141,18 +175,65 @@ async function upsertFuturesSnapshot(curve: ForwardCurve) {
 }
 
 export const getFuturesDashboard = createServerFn({ method: "GET" }).handler(async () => {
-  const provider = new EexDataSourceProvider();
+  const dataSource = new EexDataSourceProvider();
+  const publicSnapshot = new EexPublicSnapshotProvider();
   const curves = await Promise.all(
-    Object.values(FUTURES_MARKETS).map(async (market) => provider.getForwardCurve(market.code)),
+    Object.values(FUTURES_MARKETS).map(async (market) => {
+      const licensed = await dataSource.getForwardCurve(market.code);
+      if (licensed.status !== "configuration-required") return licensed;
+      return publicSnapshot.getCurrentForwardCurve(market.code);
+    }),
   );
+  const allDates = curves.flatMap((curve) => curve.contracts.map((row) => row.tradingDate));
+  const latestTradingDate = allDates.sort().at(-1) ?? null;
+  const firstHistoricalDate = allDates.sort()[0] ?? null;
+  const latestCollectionAt =
+    curves
+      .flatMap((curve) => curve.contracts.map((row) => row.fetchedAt))
+      .sort()
+      .at(-1) ?? null;
   return {
     markets: Object.values(FUTURES_MARKETS),
     curves,
+    history: await getStoredFuturesHistory(),
     fetchedAt: nowISO(),
+    latestTradingDate,
+    firstHistoricalDate,
+    latestCollectionAt,
+    provider: curves.some((curve) => curve.providerType === "eex-datasource")
+      ? "eex-datasource"
+      : "eex-public-snapshot",
     sourceNote:
-      "Source: EEX. Licensed EEX Group DataSource connection required for live settlement curves.",
+      "Source reference: EEX Market Data Hub. Data displayed as periodic analytical snapshots.",
   };
 });
+
+async function getStoredFuturesHistory() {
+  const { data } = await (
+    supabaseAdmin.from("futures_snapshots") as unknown as SelectQuery<StoredFuturesSnapshotRow>
+  )
+    .select("*")
+    .order("trading_date", { ascending: true });
+  return (data ?? []).map((row) => ({
+    provider: row.provider,
+    market: row.market_code,
+    contract: row.contract_name,
+    externalContractId: row.external_contract_id,
+    loadType: row.load_type,
+    maturityType: row.maturity_type,
+    deliveryStart: row.delivery_start,
+    deliveryEnd: row.delivery_end,
+    tradingDate: row.trading_date,
+    settlementPrice: row.settlement_price,
+    closePrice: row.close_price,
+    lastPrice: row.last_price,
+    bidPrice: row.bid_price,
+    askPrice: row.ask_price,
+    volume: row.volume,
+    openInterest: row.open_interest,
+    collectedAt: row.collected_at,
+  }));
+}
 
 export const collectFuturesSnapshots = createServerFn({ method: "POST" }).handler(async () => {
   const provider = new EexDataSourceProvider();
@@ -179,6 +260,29 @@ export const collectFuturesSnapshots = createServerFn({ method: "POST" }).handle
   }
   return { fetchedAt: nowISO(), rows };
 });
+
+export const refreshPublicFuturesSnapshots = createServerFn({ method: "POST" }).handler(async () =>
+  collectPublicEexSnapshots(true),
+);
+
+export const importManualFuturesData = createServerFn({ method: "POST" })
+  .inputValidator((data: { text?: string }) => data ?? {})
+  .handler(async ({ data }) => {
+    const preview = parseManualFuturesCsv(data?.text ?? "");
+    const snapshots = confirmedSnapshots(preview);
+    if (snapshots.length) await upsertFuturesSnapshots(snapshots);
+    return {
+      imported: snapshots.length,
+      rows: preview.map((row) => ({
+        ok: Boolean(row.snapshot) && row.errors.length === 0,
+        errors: row.errors,
+        market: row.snapshot?.marketCode ?? row.raw.market ?? null,
+        contract: row.snapshot?.contractName ?? row.raw.contract ?? null,
+        tradingDate: row.snapshot?.tradingDate ?? row.raw.trading_date ?? null,
+        price: row.snapshot?.settlementPrice ?? row.snapshot?.lastPrice ?? null,
+      })),
+    };
+  });
 
 export { cacheSet as cacheFuturesResult };
 export { parseEexForwardCurvePayload };

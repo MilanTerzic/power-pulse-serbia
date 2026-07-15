@@ -40,12 +40,27 @@ await transpileModule(
     ['from "./futures"', 'from "./futures.mjs"'],
   ],
 );
+await transpileModule(
+  path.join(root, "src/lib/futures-public-parser.ts"),
+  path.join(libOutdir, "futures-public-parser.mjs"),
+  [
+    ['from "./futures-markets"', 'from "./futures-markets.mjs"'],
+    ['from "./futures"', 'from "./futures.mjs"'],
+  ],
+);
 
 const futures = await import(pathToFileURL(path.join(libOutdir, "futures.mjs")).href);
 const markets = await import(pathToFileURL(path.join(libOutdir, "futures-markets.mjs")).href);
 const parser = await import(pathToFileURL(path.join(libOutdir, "futures-parser.mjs")).href);
+const publicParser = await import(
+  pathToFileURL(path.join(libOutdir, "futures-public-parser.mjs")).href
+);
 const fixture = JSON.parse(
   await readFile(path.join(root, "tests/fixtures/eex-forward-curve.sample.json"), "utf8"),
+);
+const manualCsv = await readFile(
+  path.join(root, "tests/fixtures/futures-manual-import.sample.csv"),
+  "utf8",
 );
 
 test.after(async () => {
@@ -124,4 +139,22 @@ test("malformed external responses do not fabricate fallback values", () => {
   const curve = parser.parseEexForwardCurvePayload({ rows: [{ contractName: "Broken" }] }, "RS");
   assert.equal(curve.status, "unavailable");
   assert.equal(curve.contracts.length, 0);
+});
+
+test("manual futures CSV parses changed column order and decimal commas", () => {
+  const rows = publicParser.parseManualFuturesCsv(manualCsv, {
+    collectedAt: "2026-07-15T12:00:00Z",
+  });
+  assert.equal(rows.length, 4);
+  assert.equal(rows[0].snapshot.settlementPrice, 95.2);
+  assert.equal(rows[1].snapshot.volume, 12);
+  assert.deepEqual(rows[2].errors, ["No price field supplied."]);
+});
+
+test("manual/public snapshot import removes duplicate records without inventing values", () => {
+  const rows = publicParser.parseManualFuturesCsv(manualCsv);
+  const snapshots = publicParser.confirmedSnapshots(rows);
+  assert.equal(snapshots.length, 2);
+  assert.equal(snapshots[0].provider, "manual-import");
+  assert.equal(snapshots[0].askPrice, null);
 });

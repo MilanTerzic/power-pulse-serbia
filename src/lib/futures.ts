@@ -20,6 +20,8 @@ export interface FuturesContract {
   unit: "MWh";
 }
 
+export type FuturesProviderType = "eex-datasource" | "eex-public-snapshot" | "manual-import";
+
 export interface FuturesPrice {
   contract: FuturesContract;
   tradingDate: string;
@@ -36,6 +38,8 @@ export interface FuturesPrice {
   sourceTimestamp?: string;
   fetchedAt: string;
   status: FuturesSourceStatus;
+  providerType?: FuturesProviderType;
+  sourceUrl?: string;
 }
 
 export interface ForwardCurve {
@@ -46,7 +50,13 @@ export interface ForwardCurve {
   sourceType: string;
   fetchedAt: string;
   status: FuturesSourceStatus;
+  providerType?: FuturesProviderType;
   reason?: string;
+}
+
+export interface ForwardCurveResult extends ForwardCurve {
+  latestCollectionAt?: string | null;
+  firstHistoricalDate?: string | null;
 }
 
 export interface FuturesHistoryPoint {
@@ -54,11 +64,14 @@ export interface FuturesHistoryPoint {
   settlementPrice: number | null;
   closePrice?: number | null;
   lastPrice?: number | null;
+  bidPrice?: number | null;
+  askPrice?: number | null;
   volume?: number | null;
   openInterest?: number | null;
   sourceContractId: string;
   sourceContractName: string;
   rollEvent?: boolean;
+  priceType?: "Settlement" | "Close" | "Last" | "Bid" | "Ask";
 }
 
 export interface RollingSeriesPoint {
@@ -70,6 +83,8 @@ export interface RollingSeriesPoint {
 }
 
 export interface FuturesDataProvider {
+  providerType?: FuturesProviderType;
+  getCurrentForwardCurve?(market: FuturesMarketCode): Promise<ForwardCurveResult>;
   getForwardCurve(market: FuturesMarketCode, tradingDate?: string): Promise<ForwardCurve>;
   getContractHistory(
     market: FuturesMarketCode,
@@ -80,6 +95,32 @@ export interface FuturesDataProvider {
   getAvailableContracts(market: FuturesMarketCode): Promise<FuturesContract[]>;
 }
 
+export interface FuturesSnapshot {
+  provider: Extract<FuturesProviderType, "eex-public-snapshot" | "manual-import">;
+  marketCode: FuturesMarketCode;
+  exchange: string;
+  productName: string;
+  externalContractId: string | null;
+  contractName: string;
+  loadType: FuturesLoadType;
+  maturityType: Extract<FuturesMaturityType, "week" | "month" | "quarter" | "year" | "other">;
+  deliveryStart: string | null;
+  deliveryEnd: string | null;
+  tradingDate: string;
+  settlementPrice: number | null;
+  closePrice: number | null;
+  lastPrice: number | null;
+  bidPrice: number | null;
+  askPrice: number | null;
+  volume: number | null;
+  openInterest: number | null;
+  currency: "EUR";
+  unit: "MWh";
+  sourceUrl: string;
+  sourceTimestamp: string | null;
+  collectedAt: string;
+}
+
 export function contractComparisonKey(contract: FuturesContract) {
   return [
     contract.loadType,
@@ -88,6 +129,8 @@ export function contractComparisonKey(contract: FuturesContract) {
     contract.deliveryEnd,
   ].join(":");
 }
+
+export const futuresContractKey = contractComparisonKey;
 
 export function sameComparableContract(a: FuturesContract, b: FuturesContract) {
   return contractComparisonKey(a) === contractComparisonKey(b);
@@ -143,6 +186,21 @@ export function buildRollingSeries(points: FuturesHistoryPoint[]): RollingSeries
 
 export function parseNullableNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
-  const n = typeof value === "number" ? value : Number(String(value).replace(",", "."));
+  const text = String(value).trim();
+  if (!text || text === "-" || /^n\/?a$/i.test(text)) return null;
+  const normalized =
+    text.includes(",") && text.includes(".")
+      ? text.replace(/\./g, "").replace(",", ".")
+      : text.replace(",", ".");
+  const n = typeof value === "number" ? value : Number(normalized.replace(/\s/g, ""));
   return Number.isFinite(n) ? n : null;
+}
+
+export function preferredHistoryPrice(point: FuturesHistoryPoint) {
+  if (point.settlementPrice != null) return { value: point.settlementPrice, type: "Settlement" };
+  if (point.closePrice != null) return { value: point.closePrice, type: "Close" };
+  if (point.lastPrice != null) return { value: point.lastPrice, type: "Last" };
+  if (point.bidPrice != null) return { value: point.bidPrice, type: "Bid" };
+  if (point.askPrice != null) return { value: point.askPrice, type: "Ask" };
+  return { value: null, type: null };
 }
