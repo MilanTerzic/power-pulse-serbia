@@ -241,7 +241,18 @@ function OverviewPage() {
           {chartMode === "heatmap" ? (
             <SpreadHeatmap data={chart.data} zones={activeZones.filter((zone) => zone !== "RS")} />
           ) : (
-            <div className="h-80">
+            <div className="relative h-80">
+              {!hasPlottedChartValues(chart.data, activeZones, chartMode) && (
+                <div className="absolute inset-0 z-10 grid place-items-center rounded border border-border/50 bg-background/70 text-center">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">No spread data to plot</p>
+                    <p className="mt-1 max-w-md text-xs text-muted-foreground">
+                      Serbia prices are loaded, but selected neighbouring market intervals are
+                      missing or do not overlap for this delivery period.
+                    </p>
+                  </div>
+                </div>
+              )}
               <ResponsiveContainer>
                 <LineChart data={chart.data} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
                   <CartesianGrid stroke="var(--color-grid)" strokeDasharray="3 3" />
@@ -650,37 +661,39 @@ function buildChartData(
   activeZones: ZoneCode[],
   mode: ChartMode,
 ) {
-  const byTs = new Map<string, Record<string, number | string | null>>();
-  const rsByTs = new Map(
+  const byInterval = new Map<string, Record<string, number | string | null>>();
+  const rsByInterval = new Map(
     (prices.find((price) => price.zone === "RS")?.data.points ?? []).map((point) => [
-      point.ts,
+      localIntervalKey(point.ts),
       point.price,
     ]),
   );
   for (const zone of prices) {
     if (!activeZones.includes(zone.zone as ZoneCode)) continue;
     for (const point of zone.data.points) {
-      const row = byTs.get(point.ts) ?? {
+      const key = localIntervalKey(point.ts);
+      const row = byInterval.get(key) ?? {
         ts: point.ts,
         t: new Date(point.ts).toLocaleString("en-GB", {
           hour: "2-digit",
+          minute: "2-digit",
           ...(prices.some((price) => price.data.points.length > 30)
             ? { day: "2-digit", month: "short" }
             : {}),
           timeZone: "Europe/Belgrade",
         }),
       };
-      const rs = rsByTs.get(point.ts);
+      const rs = rsByInterval.get(key);
       row[zone.zone] =
         mode === "spreads" || mode === "heatmap"
           ? rs == null
             ? null
             : point.price - rs
           : point.price;
-      byTs.set(point.ts, row);
+      byInterval.set(key, row);
     }
   }
-  const rows = [...byTs.values()].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+  const rows = [...byInterval.values()].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   if (rows.length <= 1500) return { data: rows, aggregation: "interval-level data" };
   const stride = Math.ceil(rows.length / 750);
   const bucketed: typeof rows = [];
@@ -705,4 +718,27 @@ function buildChartData(
     data: bucketed,
     aggregation: `min/max-preserving display buckets (${rows.length} -> ${bucketed.length})`,
   };
+}
+
+function localIntervalKey(ts: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Belgrade",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(ts));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+}
+
+function hasPlottedChartValues(
+  rows: Record<string, number | string | null>[],
+  activeZones: ZoneCode[],
+  mode: ChartMode,
+) {
+  const zones = mode === "prices" ? activeZones : activeZones.filter((zone) => zone !== "RS");
+  return rows.some((row) => zones.some((zone) => typeof row[zone] === "number"));
 }
