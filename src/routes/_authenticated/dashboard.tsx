@@ -662,15 +662,11 @@ function buildChartData(
   mode: ChartMode,
 ) {
   const byInterval = new Map<string, Record<string, number | string | null>>();
-  const rsByInterval = new Map(
-    (prices.find((price) => price.zone === "RS")?.data.points ?? []).map((point) => [
-      localIntervalKey(point.ts),
-      point.price,
-    ]),
-  );
+  const rsPoints = prices.find((price) => price.zone === "RS")?.data.points ?? [];
+  const rsByInterval = new Map(rsPoints.map((point) => [localIntervalKey(point.ts), point.price]));
   for (const zone of prices) {
     if (!activeZones.includes(zone.zone as ZoneCode)) continue;
-    for (const point of zone.data.points) {
+    for (const [index, point] of zone.data.points.entries()) {
       const key = localIntervalKey(point.ts);
       const row = byInterval.get(key) ?? {
         ts: point.ts,
@@ -683,7 +679,7 @@ function buildChartData(
           timeZone: "Europe/Belgrade",
         }),
       };
-      const rs = rsByInterval.get(key);
+      const rs = rsByInterval.get(key) ?? rsPoints[index]?.price;
       row[zone.zone] =
         mode === "spreads" || mode === "heatmap"
           ? rs == null
