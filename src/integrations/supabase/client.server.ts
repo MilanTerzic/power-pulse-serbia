@@ -2,8 +2,41 @@
 // Server-side Supabase client with service role key - bypasses RLS.
 // Use this for admin operations in server functions and server routes only.
 // For user-authenticated queries (with RLS), use the auth middleware instead.
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from './types';
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "./types";
+
+type NoopQuery = {
+  select: () => NoopQuery;
+  eq: () => NoopQuery;
+  order: () => NoopQuery;
+  insert: () => NoopQuery;
+  update: () => NoopQuery;
+  delete: () => NoopQuery;
+  upsert: () => Promise<{ data: null; error: null }>;
+  maybeSingle: () => Promise<{ data: null; error: null }>;
+  single: () => Promise<{ data: null; error: null }>;
+};
+
+function createNoopSupabaseAdminClient() {
+  const createQuery = (): NoopQuery => {
+    const query: NoopQuery = {
+      select: () => query,
+      eq: () => query,
+      order: () => query,
+      insert: () => query,
+      update: () => query,
+      delete: () => query,
+      upsert: async () => ({ data: null, error: null }),
+      maybeSingle: async () => ({ data: null, error: null }),
+      single: async () => ({ data: null, error: null }),
+    };
+    return query;
+  };
+
+  return {
+    from: () => createQuery(),
+  } as unknown as ReturnType<typeof createSupabaseAdminClient>;
+}
 
 function createSupabaseAdminClient() {
   const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -11,12 +44,12 @@ function createSupabaseAdminClient() {
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     const missing = [
-      ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
-      ...(!SUPABASE_SERVICE_ROLE_KEY ? ['SUPABASE_SERVICE_ROLE_KEY'] : []),
+      ...(!SUPABASE_URL ? ["SUPABASE_URL"] : []),
+      ...(!SUPABASE_SERVICE_ROLE_KEY ? ["SUPABASE_SERVICE_ROLE_KEY"] : []),
     ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
-    console.error(`[Supabase] ${message}`);
-    throw new Error(message);
+    const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Connect Supabase in Lovable Cloud.`;
+    console.warn(`[Supabase] ${message} Server-side cache is disabled for this runtime.`);
+    return createNoopSupabaseAdminClient();
   }
 
   return createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -24,7 +57,7 @@ function createSupabaseAdminClient() {
       storage: undefined,
       persistSession: false,
       autoRefreshToken: false,
-    }
+    },
   });
 }
 
