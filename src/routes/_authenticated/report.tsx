@@ -53,6 +53,20 @@ const COLORS: Record<string, string> = {
   AL: "#e879f9",
 };
 
+const EXPORT_THEME_COLORS: Record<string, string> = {
+  "--color-background": "#242a2f",
+  "--color-foreground": "#f1f5f9",
+  "--color-surface": "#2b3238",
+  "--color-surface-2": "#343b42",
+  "--color-card": "#2d343a",
+  "--color-border": "#48515a",
+  "--color-grid": "#46505a",
+  "--color-muted-foreground": "#a8b2bd",
+  "--color-primary": "#1ec8c8",
+  "--color-primary-foreground": "#122022",
+  "--color-destructive": "#ef4444",
+};
+
 const PRESETS: Array<{ key: ReportPreset; label: string }> = [
   { key: "last7", label: "Last 7 days" },
   { key: "last30", label: "Last 30 days" },
@@ -65,8 +79,11 @@ function TraderReportPage() {
   const fn = useServerFn(getTraderReport);
   const { range, setRange } = useDateRange();
   const reportExportRef = useRef<HTMLDivElement | null>(null);
+  const jpegObjectUrlRef = useRef<string | null>(null);
   const [preset, setPreset] = useState<ReportPreset>("last7");
   const [isExportingJpeg, setIsExportingJpeg] = useState(false);
+  const [jpegDownload, setJpegDownload] = useState<{ filename: string; url: string } | null>(null);
+  const [jpegExportError, setJpegExportError] = useState<string | null>(null);
   const [marketOn, setMarketOn] = useState<Record<string, boolean>>({
     RS: true,
     HU: true,
@@ -89,6 +106,13 @@ function TraderReportPage() {
     setRange(calculatePresetRange(preset, range));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset]);
+
+  useEffect(
+    () => () => {
+      if (jpegObjectUrlRef.current) URL.revokeObjectURL(jpegObjectUrlRef.current);
+    },
+    [],
+  );
 
   const q = useQuery({
     queryKey: ["trader-report", range.from, range.to],
@@ -169,16 +193,32 @@ function TraderReportPage() {
     downloadCSV("trader-report-route-economics.csv", report.routeEconomics.rows as never);
   }
 
+  function rememberJpegDownload(filename: string, blob: Blob) {
+    if (jpegObjectUrlRef.current) URL.revokeObjectURL(jpegObjectUrlRef.current);
+    const url = URL.createObjectURL(blob);
+    jpegObjectUrlRef.current = url;
+    setJpegDownload({ filename, url });
+    setJpegExportError(null);
+    return url;
+  }
+
   async function exportJpegReport() {
-    if (!report || !reportExportRef.current) return;
+    if (!report) return;
+    if (!reportExportRef.current) {
+      setJpegExportError("Report content is not ready yet.");
+      return;
+    }
     const filename = `trader-report-${report.period.from}-${report.period.to}.jpg`;
     const downloadWindow = openJpegDownloadWindow(filename);
+    setJpegExportError(null);
     setIsExportingJpeg(true);
     try {
       const blob = await createNodeJpeg(reportExportRef.current);
-      downloadBlob(filename, blob, downloadWindow);
-      toast.success(`JPEG report downloaded: ${filename}`);
+      const url = rememberJpegDownload(filename, blob);
+      downloadJpegUrl(filename, url, downloadWindow);
+      toast.success(`JPEG report ready: ${filename}`);
     } catch (error) {
+      setJpegExportError(error instanceof Error ? error.message : "JPEG export failed");
       showDownloadError(downloadWindow);
       toast.error(error instanceof Error ? error.message : "JPEG export failed");
     } finally {
@@ -187,21 +227,28 @@ function TraderReportPage() {
   }
 
   async function exportEmailJpeg() {
-    if (!report || !reportExportRef.current) return;
+    if (!report) return;
+    if (!reportExportRef.current) {
+      setJpegExportError("Report content is not ready yet.");
+      return;
+    }
     const filename = `trader-report-${report.period.from}-${report.period.to}.jpg`;
     const downloadWindow = openJpegDownloadWindow(filename);
+    setJpegExportError(null);
     setIsExportingJpeg(true);
     try {
       const blob = await createNodeJpeg(reportExportRef.current);
-      downloadBlob(filename, blob, downloadWindow);
+      const url = rememberJpegDownload(filename, blob);
+      downloadJpegUrl(filename, url, downloadWindow);
       const copied = await copyImageBlobToClipboard(blob);
       openOutlookDraft(report, copied, filename);
       toast.success(
         copied
-          ? "JPEG downloaded and copied. Outlook draft opened; click the body and press Ctrl+V."
-          : "JPEG downloaded. Outlook draft opened; drag the JPEG into the email body.",
+          ? "JPEG ready and copied. Outlook draft opened; click the body and press Ctrl+V."
+          : "JPEG ready. Outlook draft opened; use Download latest JPEG and drag it into the email body.",
       );
     } catch (error) {
+      setJpegExportError(error instanceof Error ? error.message : "JPEG export failed");
       showDownloadError(downloadWindow);
       toast.error(error instanceof Error ? error.message : "JPEG export failed");
     } finally {
@@ -312,6 +359,32 @@ function TraderReportPage() {
             )}
             <span className="text-[11px] text-muted-foreground">Europe/Belgrade delivery days</span>
           </div>
+          {jpegDownload && (
+            <div
+              className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs print:hidden"
+              data-jpeg-hidden="true"
+            >
+              <span className="text-muted-foreground">
+                JPEG is ready. Use this link to download the prepared report:
+              </span>
+              <a
+                href={jpegDownload.url}
+                download={jpegDownload.filename}
+                className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 font-medium text-primary-foreground hover:opacity-90"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download latest JPEG
+              </a>
+            </div>
+          )}
+          {jpegExportError && (
+            <div
+              className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive print:hidden"
+              data-jpeg-hidden="true"
+            >
+              JPEG export failed: {jpegExportError}
+            </div>
+          )}
         </Panel>
 
         {q.isLoading && <LoadingReport />}
@@ -644,39 +717,6 @@ function LoadingReport() {
   );
 }
 
-function removeExportHidden(node: Element) {
-  node.querySelectorAll("[data-jpeg-hidden='true']").forEach((el) => el.remove());
-  node.querySelectorAll("*").forEach((el) => {
-    if (el.classList.contains("print:hidden")) el.remove();
-  });
-}
-
-function inlineComputedStyles(source: Element, clone: Element) {
-  const computed = window.getComputedStyle(source);
-  const ignored = new Set(["animation", "animation-name", "transition", "transition-property"]);
-  let cssText = "";
-  for (const property of Array.from(computed)) {
-    if (ignored.has(property)) continue;
-    cssText += `${property}:${computed.getPropertyValue(property)};`;
-  }
-  clone.setAttribute("style", `${clone.getAttribute("style") ?? ""};${cssText}`);
-
-  const sourceChildren = Array.from(source.children);
-  const cloneChildren = Array.from(clone.children);
-  for (let i = 0; i < sourceChildren.length; i += 1) {
-    if (cloneChildren[i]) inlineComputedStyles(sourceChildren[i], cloneChildren[i]);
-  }
-}
-
-function loadImage(src: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Could not render report JPEG"));
-    image.src = src;
-  });
-}
-
 function canvasToJpegBlob(canvas: HTMLCanvasElement) {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
@@ -729,34 +769,24 @@ function escapeHtml(value: string) {
   });
 }
 
-function downloadBlob(filename: string, blob: Blob, helper?: Window | null) {
-  const url = URL.createObjectURL(blob);
-  const targetDocument = helper && !helper.closed ? helper.document : document;
-  const link = targetDocument.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.textContent = `Download ${filename}`;
-  link.style.cssText =
-    "display:inline-flex;margin-top:16px;padding:10px 14px;border-radius:8px;background:#0f766e;color:white;text-decoration:none;font-family:Inter,Arial,sans-serif;font-size:14px;";
-
+function downloadJpegUrl(filename: string, url: string, helper?: Window | null) {
   if (helper && !helper.closed) {
+    const link = helper.document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.textContent = `Download ${filename}`;
+    link.style.cssText =
+      "display:inline-flex;margin-top:16px;padding:10px 14px;border-radius:8px;background:#0f766e;color:white;text-decoration:none;font-family:Inter,Arial,sans-serif;font-size:14px;";
     helper.document.title = "JPEG report ready";
     helper.document.body.innerHTML = [
       '<div style="font-family: Inter, Arial, sans-serif; padding: 24px; color: #172324;">',
       '<h1 style="font-size: 20px; margin: 0 0 12px;">JPEG report ready</h1>',
-      '<p style="font-size: 14px; line-height: 1.5; margin: 0;">The download should start automatically. If it does not, use the button below.</p>',
+      '<p style="font-size: 14px; line-height: 1.5; margin: 0;">Use the button below to download the prepared report image.</p>',
       "</div>",
     ].join("");
     helper.document.body.querySelector("div")?.appendChild(link);
     helper.focus();
-  } else {
-    link.style.display = "none";
-    document.body.appendChild(link);
   }
-
-  link.click();
-  if (!(helper && !helper.closed)) link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 async function copyImageBlobToClipboard(blob: Blob) {
@@ -767,6 +797,136 @@ async function copyImageBlobToClipboard(blob: Blob) {
   } catch {
     return false;
   }
+}
+
+function interpolateHexColor(from: string, to: string, amount: number) {
+  const clamp = Math.max(0, Math.min(1, amount));
+  const parse = (value: string) => ({
+    r: Number.parseInt(value.slice(1, 3), 16),
+    g: Number.parseInt(value.slice(3, 5), 16),
+    b: Number.parseInt(value.slice(5, 7), 16),
+  });
+  const a = parse(from);
+  const b = parse(to);
+  const channel = (start: number, end: number) =>
+    Math.round(start + (end - start) * clamp)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(a.r, b.r)}${channel(a.g, b.g)}${channel(a.b, b.b)}`;
+}
+
+function normalizeClonedReportForCanvas(clonedDocument: Document) {
+  const root = clonedDocument.querySelector(".report-print-root");
+  if (!root) return;
+
+  root.querySelectorAll<HTMLElement>("*").forEach((el) => {
+    el.style.boxShadow = "none";
+    el.style.textShadow = "none";
+    el.style.outlineColor = EXPORT_THEME_COLORS["--color-primary"];
+    el.style.borderColor = EXPORT_THEME_COLORS["--color-border"];
+  });
+
+  root.querySelectorAll<SVGElement>("svg *").forEach((el) => {
+    for (const attr of ["fill", "stroke", "stop-color"]) {
+      const value = el.getAttribute(attr);
+      if (!value || value === "none" || value.startsWith("#") || value.startsWith("url(")) continue;
+      if (value.includes("var(") || value.includes("okl") || value.includes("lab")) {
+        el.setAttribute(attr, attr === "fill" ? "none" : EXPORT_THEME_COLORS["--color-grid"]);
+      }
+    }
+    const style = el.getAttribute("style");
+    if (style?.includes("okl") || style?.includes("lab") || style?.includes("color-mix")) {
+      el.removeAttribute("style");
+    }
+  });
+}
+
+function createIsolatedReportClone(node: HTMLElement, width: number, height: number) {
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.position = "fixed";
+  iframe.style.left = "-100000px";
+  iframe.style.top = "0";
+  iframe.style.width = `${width}px`;
+  iframe.style.height = `${height}px`;
+  iframe.style.opacity = "0";
+  iframe.style.pointerEvents = "none";
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentDocument;
+  if (!doc) {
+    iframe.remove();
+    throw new Error("Could not prepare report JPEG");
+  }
+
+  doc.open();
+  doc.write("<!doctype html><html><head></head><body></body></html>");
+  doc.close();
+  doc.documentElement.style.background = EXPORT_THEME_COLORS["--color-background"];
+  doc.body.style.margin = "0";
+  doc.body.style.background = EXPORT_THEME_COLORS["--color-background"];
+  doc.body.style.width = `${width}px`;
+  doc.body.style.minHeight = `${height}px`;
+
+  const clone = node.cloneNode(true) as HTMLElement;
+  inlineSafeComputedStyles(node, clone);
+  removeExportHidden(clone);
+  clone.style.width = `${width}px`;
+  clone.style.minHeight = `${height}px`;
+  clone.style.background = EXPORT_THEME_COLORS["--color-background"];
+  doc.body.appendChild(clone);
+  normalizeClonedReportForCanvas(doc);
+  return { iframe, clone };
+}
+
+function removeExportHidden(node: Element) {
+  node.querySelectorAll("[data-jpeg-hidden='true']").forEach((el) => el.remove());
+  node.querySelectorAll("*").forEach((el) => {
+    if (el.classList.contains("print:hidden")) el.remove();
+  });
+}
+
+function inlineSafeComputedStyles(source: Element, clone: Element) {
+  const computed = window.getComputedStyle(source);
+  const ignored = new Set(["animation", "animation-name", "transition", "transition-property"]);
+  let cssText = clone.getAttribute("style") ?? "";
+
+  for (const property of Array.from(computed)) {
+    if (ignored.has(property)) continue;
+    const rawValue = computed.getPropertyValue(property);
+    const value = normalizeCanvasCssProperty(property, rawValue);
+    if (value) cssText += `;${property}:${value}`;
+  }
+
+  clone.setAttribute("style", cssText);
+
+  const sourceChildren = Array.from(source.children);
+  const cloneChildren = Array.from(clone.children);
+  for (let i = 0; i < sourceChildren.length; i += 1) {
+    if (cloneChildren[i]) inlineSafeComputedStyles(sourceChildren[i], cloneChildren[i]);
+  }
+}
+
+function normalizeCanvasCssProperty(property: string, value: string) {
+  if (!value) return value;
+  const unsupportedColor = /(?:oklab|oklch|lab|lch|color-mix)\(/i.test(value);
+  if (!unsupportedColor) return value;
+
+  if (property.includes("shadow")) return "none";
+  if (property.includes("border")) return EXPORT_THEME_COLORS["--color-border"];
+  if (property.includes("outline") || property.includes("decoration")) {
+    return EXPORT_THEME_COLORS["--color-primary"];
+  }
+  if (property === "color" || property.includes("text")) {
+    return EXPORT_THEME_COLORS["--color-foreground"];
+  }
+  if (property.includes("background")) {
+    return property === "background-image" ? "none" : EXPORT_THEME_COLORS["--color-surface"];
+  }
+  if (property.includes("fill") || property.includes("stroke")) {
+    return EXPORT_THEME_COLORS["--color-grid"];
+  }
+  return "";
 }
 
 function openOutlookDraft(report: TraderReport, copied: boolean, filename: string) {
@@ -790,42 +950,23 @@ async function createNodeJpeg(node: HTMLElement) {
   const height = Math.ceil(node.scrollHeight);
   if (!width || !height) throw new Error("Report is empty; nothing to export");
   const scale = Math.min(2, 12000 / width, 16000 / height);
-  const exportWidth = Math.max(1, Math.floor(width * scale));
-  const exportHeight = Math.max(1, Math.floor(height * scale));
-
-  const clone = node.cloneNode(true) as HTMLElement;
-  inlineComputedStyles(node, clone);
-  removeExportHidden(clone);
-  clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
-  clone.style.width = `${width}px`;
-  clone.style.minHeight = `${height}px`;
-  clone.style.boxSizing = "border-box";
-  clone.style.background = window.getComputedStyle(node).backgroundColor || "#0f1718";
-
-  const serialized = new XMLSerializer().serializeToString(clone);
-  const svg = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${exportWidth}" height="${exportHeight}" viewBox="0 0 ${exportWidth} ${exportHeight}">`,
-    `<g transform="scale(${scale})">`,
-    `<foreignObject width="${width}" height="${height}">${serialized}</foreignObject>`,
-    `</g>`,
-    `</svg>`,
-  ].join("");
-
-  const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-  const svgUrl = URL.createObjectURL(svgBlob);
+  const { default: html2canvas } = await import("html2canvas");
+  const { iframe, clone } = createIsolatedReportClone(node, width, height);
   try {
-    const image = await loadImage(svgUrl);
-    const canvas = document.createElement("canvas");
-    canvas.width = exportWidth;
-    canvas.height = exportHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Could not prepare report JPEG");
-    ctx.fillStyle = clone.style.background || "#0f1718";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const canvas = await html2canvas(clone, {
+      backgroundColor: EXPORT_THEME_COLORS["--color-background"],
+      imageTimeout: 0,
+      logging: false,
+      scale,
+      useCORS: true,
+      width,
+      height,
+      windowWidth: width,
+      windowHeight: height,
+    });
     return canvasToJpegBlob(canvas);
   } finally {
-    URL.revokeObjectURL(svgUrl);
+    iframe.remove();
   }
 }
 
@@ -957,10 +1098,10 @@ function PriceHeatmap({ points }: { points: Array<{ ts: string; price: number }>
                 const r = byHour.get(h);
                 const pct = r ? (r.price - min) / Math.max(1, max - min) : 0;
                 const bg = !r
-                  ? "var(--color-surface-2)"
+                  ? EXPORT_THEME_COLORS["--color-surface-2"]
                   : r.price < 0
-                    ? "oklch(0.65 0.22 25 / 0.75)"
-                    : `color-mix(in oklab, var(--color-primary) ${20 + pct * 65}%, var(--color-surface-2))`;
+                    ? "#b91c1c"
+                    : interpolateHexColor("#164e63", EXPORT_THEME_COLORS["--color-primary"], pct);
                 return (
                   <div
                     key={h}
