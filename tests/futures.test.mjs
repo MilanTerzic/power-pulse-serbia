@@ -67,6 +67,12 @@ await transpileModule(
     ['from "../futures"', 'from "../futures.mjs"'],
   ],
 );
+await transpileModule(path.join(root, "src/lib/eex.server.ts"), path.join(libOutdir, "eex.mjs"), [
+  [
+    'import { supabaseAdmin } from "@/integrations/supabase/client.server";',
+    "const supabaseAdmin = globalThis.__futuresTestSupabase;",
+  ],
+]);
 
 const futures = await import(pathToFileURL(path.join(libOutdir, "futures.mjs")).href);
 const markets = await import(pathToFileURL(path.join(libOutdir, "futures-markets.mjs")).href);
@@ -77,6 +83,7 @@ const publicParser = await import(
 const eexPublic = await import(
   pathToFileURL(path.join(futuresOutdir, "eex-public-snapshot.server.mjs")).href
 );
+const forecastEex = await import(pathToFileURL(path.join(libOutdir, "eex.mjs")).href);
 const fixture = JSON.parse(
   await readFile(path.join(root, "tests/fixtures/eex-forward-curve.sample.json"), "utf8"),
 );
@@ -294,6 +301,49 @@ test("stored public futures rows are ordered chronologically by delivery period"
     curve.contracts.map((row) => row.contract.contractName),
     ["RS Base Aug-26", "RS Base Sep-26"],
   );
+});
+
+test("forecast EEX anchor uses stored Futures-page snapshots before legacy scraper", async () => {
+  resetFakeSupabase({
+    snapshots: [
+      snapshotRow({
+        market_code: "HU",
+        contract_name: "HU Base Q4-26",
+        external_contract_id: "HU:Q4",
+        maturity_type: "quarter",
+        delivery_start: "2026-10-01",
+        delivery_end: "2026-12-31",
+        settlement_price: 101.4,
+      }),
+      snapshotRow({
+        market_code: "HU",
+        contract_name: "HU Base Aug-26",
+        external_contract_id: "HU:AUG",
+        maturity_type: "month",
+        delivery_start: "2026-08-01",
+        delivery_end: "2026-08-31",
+        settlement_price: 96.7,
+      }),
+    ],
+  });
+  let fetchCalled = false;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    throw new Error("legacy scraper should not run");
+  };
+
+  const result = await forecastEex.fetchEexFutures();
+  assert.equal(result.source, "cache");
+  assert.equal(result.anchor_zone, "HU");
+  assert.match(result.reason, /stored Futures-page EEX snapshot/);
+  assert.deepEqual(
+    result.prices.map((row) => [row.product, row.period_label, row.price_eur_mwh]),
+    [
+      ["month", "M08-26", 96.7],
+      ["quarter", "Q04-26", 101.4],
+    ],
+  );
+  assert.equal(fetchCalled, false);
 });
 
 function filterRow(overrides = {}) {
