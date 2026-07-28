@@ -68,9 +68,14 @@ let _supabaseAdmin: ReturnType<typeof createSupabaseAdminClient> | undefined;
 // Server-side Supabase client with service role - bypasses RLS
 // SECURITY: Only use this for trusted server-side operations, never expose to client code
 // Import like: import { supabaseAdmin } from "@/integrations/supabase/client.server";
-export const supabaseAdmin = new Proxy({} as ReturnType<typeof createSupabaseAdminClient>, {
-  get(_, prop, receiver) {
-    if (!_supabaseAdmin) _supabaseAdmin = createSupabaseAdminClient();
-    return Reflect.get(_supabaseAdmin, prop, receiver);
+// Typed loosely so server-only tables that are not part of the generated
+// Database types (e.g. futures cache tables) can still be queried.
+export const supabaseAdmin: SupabaseClient<any, any, any> = new Proxy(
+  {} as SupabaseClient<any, any, any>,
+  {
+    get(_, prop, receiver) {
+      if (!_supabaseAdmin) _supabaseAdmin = createSupabaseAdminClient();
+      return Reflect.get(_supabaseAdmin, prop, receiver);
+    },
   },
-});
+);
