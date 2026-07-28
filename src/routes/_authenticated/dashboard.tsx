@@ -159,38 +159,49 @@ function OverviewPage() {
       <div className="space-y-5 p-4 md:p-6">
         {healthOpen && <DataHealthPanel rows={completeness.rows} />}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <KPI
-            label={`SEEPEX baseload · ${range.from === range.to ? range.from : `${range.from} → ${range.to}`}`}
-            value={fmtPrice(rsAvg)}
-            sub={
-              rsPoints.length
-                ? `${rsDelta == null ? "Previous day unavailable" : `${rsDelta >= 0 ? "+" : ""}${fmtPrice(rsDelta)} vs previous delivery day`} · ${completenessForSeries(rsPoints, dayList).receivedIntervals}/${completenessForSeries(rsPoints, dayList).expectedIntervals} intervals`
-                : "No Serbia price data"
-            }
-            source={data?.prices?.find((price) => price.zone === "RS")?.source}
-          />
-          <KPI
-            label="Peak / off-peak"
-            value={peak.peak == null ? "N/A" : `${fmtPrice(peak.peak)} / ${fmtPrice(peak.offPeak)}`}
-            sub={
-              peak.spread == null
-                ? "Peak 08-20 Europe/Belgrade, weekdays"
-                : `Spread ${fmtPrice(peak.spread)} · peak 08-20 local weekdays`
-            }
-            accent="info"
-          />
-          <OpportunityKpi
-            title="Best validated import route"
-            route={bestImport}
-            empty="No validated import opportunity"
-          />
-          <OpportunityKpi
-            title="Best validated export route"
-            route={bestExport}
-            empty="No validated export opportunity"
-          />
-        </div>
+        {q.isLoading && !data ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <KpiSkeleton key={i} />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <KPI
+              label={`SEEPEX baseload · ${range.from === range.to ? range.from : `${range.from} → ${range.to}`}`}
+              value={fmtPrice(rsAvg)}
+              sub={
+                rsPoints.length
+                  ? `${rsDelta == null ? "Previous day unavailable" : `${rsDelta >= 0 ? "+" : ""}${fmtPrice(rsDelta)} vs previous delivery day`} · ${completenessForSeries(rsPoints, dayList).receivedIntervals}/${completenessForSeries(rsPoints, dayList).expectedIntervals} intervals`
+                  : "No Serbia price data"
+              }
+              source={data?.prices?.find((price) => price.zone === "RS")?.source}
+            />
+            <KPI
+              label="Peak / off-peak"
+              value={
+                peak.peak == null ? "N/A" : `${fmtPrice(peak.peak)} / ${fmtPrice(peak.offPeak)}`
+              }
+              sub={
+                peak.spread == null
+                  ? "Peak 08-20 Europe/Belgrade, weekdays"
+                  : `Spread ${fmtPrice(peak.spread)} · peak 08-20 local weekdays`
+              }
+              accent="info"
+            />
+            <OpportunityKpi
+              title="Best validated import route"
+              route={bestImport}
+              empty="No validated import opportunity"
+            />
+            <OpportunityKpi
+              title="Best validated export route"
+              route={bestExport}
+              empty="No validated export opportunity"
+            />
+          </div>
+        )}
+
 
         <Panel title="Market signal summary">
           <p className="text-sm leading-relaxed text-foreground/90">{signal}</p>
