@@ -9,43 +9,108 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedWeatherRouteImport } from './routes/_authenticated/weather'
-import { Route as AuthenticatedUtilizationRouteImport } from './routes/_authenticated/utilization'
-import { Route as AuthenticatedSpreadsRouteImport } from './routes/_authenticated/spreads'
-import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
-import { Route as AuthenticatedReportRouteImport } from './routes/_authenticated/report'
-import { Route as AuthenticatedPricesRouteImport } from './routes/_authenticated/prices'
-import { Route as AuthenticatedOutagesRouteImport } from './routes/_authenticated/outages'
-import { Route as AuthenticatedMapRouteImport } from './routes/_authenticated/map'
-import { Route as AuthenticatedFuturesRouteImport } from './routes/_authenticated/futures'
-import { Route as AuthenticatedForecastRouteImport } from './routes/_authenticated/forecast'
-import { Route as AuthenticatedFlowsRouteImport } from './routes/_authenticated/flows'
-import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
-import { Route as AuthenticatedDanubeRouteImport } from './routes/_authenticated/danube'
-import { Route as AuthenticatedCbcRouteImport } from './routes/_authenticated/cbc'
-import { Route as AuthenticatedCapacityRouteImport } from './routes/_authenticated/capacity'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedBalanceRouteImport } from './routes/_authenticated/balance'
+import { Route as AuthenticatedCapacityRouteImport } from './routes/_authenticated/capacity'
+import { Route as AuthenticatedCbcRouteImport } from './routes/_authenticated/cbc'
+import { Route as AuthenticatedDanubeRouteImport } from './routes/_authenticated/danube'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedFlowsRouteImport } from './routes/_authenticated/flows'
+import { Route as AuthenticatedForecastRouteImport } from './routes/_authenticated/forecast'
+import { Route as AuthenticatedFuturesRouteImport } from './routes/_authenticated/futures'
+import { Route as AuthenticatedMapRouteImport } from './routes/_authenticated/map'
+import { Route as AuthenticatedOutagesRouteImport } from './routes/_authenticated/outages'
+import { Route as AuthenticatedPricesRouteImport } from './routes/_authenticated/prices'
+import { Route as AuthenticatedReportRouteImport } from './routes/_authenticated/report'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedSpreadsRouteImport } from './routes/_authenticated/spreads'
+import { Route as AuthenticatedUtilizationRouteImport } from './routes/_authenticated/utilization'
+import { Route as AuthenticatedWeatherRouteImport } from './routes/_authenticated/weather'
 
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedWeatherRoute = AuthenticatedWeatherRouteImport.update({
-  id: '/weather',
-  path: '/weather',
+const AuthenticatedBalanceRoute = AuthenticatedBalanceRouteImport.update({
+  id: '/balance',
+  path: '/balance',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedCapacityRoute = AuthenticatedCapacityRouteImport.update({
+  id: '/capacity',
+  path: '/capacity',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedCbcRoute = AuthenticatedCbcRouteImport.update({
+  id: '/cbc',
+  path: '/cbc',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedDanubeRoute = AuthenticatedDanubeRouteImport.update({
+  id: '/danube',
+  path: '/danube',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedFlowsRoute = AuthenticatedFlowsRouteImport.update({
+  id: '/flows',
+  path: '/flows',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedForecastRoute = AuthenticatedForecastRouteImport.update({
+  id: '/forecast',
+  path: '/forecast',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedFuturesRoute = AuthenticatedFuturesRouteImport.update({
+  id: '/futures',
+  path: '/futures',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedMapRoute = AuthenticatedMapRouteImport.update({
+  id: '/map',
+  path: '/map',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedOutagesRoute = AuthenticatedOutagesRouteImport.update({
+  id: '/outages',
+  path: '/outages',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedPricesRoute = AuthenticatedPricesRouteImport.update({
+  id: '/prices',
+  path: '/prices',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedReportRoute = AuthenticatedReportRouteImport.update({
+  id: '/report',
+  path: '/report',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSpreadsRoute = AuthenticatedSpreadsRouteImport.update({
+  id: '/spreads',
+  path: '/spreads',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedUtilizationRoute =
@@ -54,74 +119,9 @@ const AuthenticatedUtilizationRoute =
     path: '/utilization',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedSpreadsRoute = AuthenticatedSpreadsRouteImport.update({
-  id: '/spreads',
-  path: '/spreads',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedReportRoute = AuthenticatedReportRouteImport.update({
-  id: '/report',
-  path: '/report',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedPricesRoute = AuthenticatedPricesRouteImport.update({
-  id: '/prices',
-  path: '/prices',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedOutagesRoute = AuthenticatedOutagesRouteImport.update({
-  id: '/outages',
-  path: '/outages',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedMapRoute = AuthenticatedMapRouteImport.update({
-  id: '/map',
-  path: '/map',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedFuturesRoute = AuthenticatedFuturesRouteImport.update({
-  id: '/futures',
-  path: '/futures',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedForecastRoute = AuthenticatedForecastRouteImport.update({
-  id: '/forecast',
-  path: '/forecast',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedFlowsRoute = AuthenticatedFlowsRouteImport.update({
-  id: '/flows',
-  path: '/flows',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedDanubeRoute = AuthenticatedDanubeRouteImport.update({
-  id: '/danube',
-  path: '/danube',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedCbcRoute = AuthenticatedCbcRouteImport.update({
-  id: '/cbc',
-  path: '/cbc',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedCapacityRoute = AuthenticatedCapacityRouteImport.update({
-  id: '/capacity',
-  path: '/capacity',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedBalanceRoute = AuthenticatedBalanceRouteImport.update({
-  id: '/balance',
-  path: '/balance',
+const AuthenticatedWeatherRoute = AuthenticatedWeatherRouteImport.update({
+  id: '/weather',
+  path: '/weather',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 
@@ -259,11 +259,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated': {
@@ -273,109 +273,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/weather': {
-      id: '/_authenticated/weather'
-      path: '/weather'
-      fullPath: '/weather'
-      preLoaderRoute: typeof AuthenticatedWeatherRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/utilization': {
-      id: '/_authenticated/utilization'
-      path: '/utilization'
-      fullPath: '/utilization'
-      preLoaderRoute: typeof AuthenticatedUtilizationRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/spreads': {
-      id: '/_authenticated/spreads'
-      path: '/spreads'
-      fullPath: '/spreads'
-      preLoaderRoute: typeof AuthenticatedSpreadsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/settings': {
-      id: '/_authenticated/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/report': {
-      id: '/_authenticated/report'
-      path: '/report'
-      fullPath: '/report'
-      preLoaderRoute: typeof AuthenticatedReportRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/prices': {
-      id: '/_authenticated/prices'
-      path: '/prices'
-      fullPath: '/prices'
-      preLoaderRoute: typeof AuthenticatedPricesRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/outages': {
-      id: '/_authenticated/outages'
-      path: '/outages'
-      fullPath: '/outages'
-      preLoaderRoute: typeof AuthenticatedOutagesRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/map': {
-      id: '/_authenticated/map'
-      path: '/map'
-      fullPath: '/map'
-      preLoaderRoute: typeof AuthenticatedMapRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/futures': {
-      id: '/_authenticated/futures'
-      path: '/futures'
-      fullPath: '/futures'
-      preLoaderRoute: typeof AuthenticatedFuturesRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/forecast': {
-      id: '/_authenticated/forecast'
-      path: '/forecast'
-      fullPath: '/forecast'
-      preLoaderRoute: typeof AuthenticatedForecastRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/flows': {
-      id: '/_authenticated/flows'
-      path: '/flows'
-      fullPath: '/flows'
-      preLoaderRoute: typeof AuthenticatedFlowsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/dashboard': {
-      id: '/_authenticated/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/danube': {
-      id: '/_authenticated/danube'
-      path: '/danube'
-      fullPath: '/danube'
-      preLoaderRoute: typeof AuthenticatedDanubeRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/cbc': {
-      id: '/_authenticated/cbc'
-      path: '/cbc'
-      fullPath: '/cbc'
-      preLoaderRoute: typeof AuthenticatedCbcRouteImport
+    '/_authenticated/balance': {
+      id: '/_authenticated/balance'
+      path: '/balance'
+      fullPath: '/balance'
+      preLoaderRoute: typeof AuthenticatedBalanceRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/capacity': {
@@ -385,11 +294,102 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCapacityRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/balance': {
-      id: '/_authenticated/balance'
-      path: '/balance'
-      fullPath: '/balance'
-      preLoaderRoute: typeof AuthenticatedBalanceRouteImport
+    '/_authenticated/cbc': {
+      id: '/_authenticated/cbc'
+      path: '/cbc'
+      fullPath: '/cbc'
+      preLoaderRoute: typeof AuthenticatedCbcRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/danube': {
+      id: '/_authenticated/danube'
+      path: '/danube'
+      fullPath: '/danube'
+      preLoaderRoute: typeof AuthenticatedDanubeRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/flows': {
+      id: '/_authenticated/flows'
+      path: '/flows'
+      fullPath: '/flows'
+      preLoaderRoute: typeof AuthenticatedFlowsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/forecast': {
+      id: '/_authenticated/forecast'
+      path: '/forecast'
+      fullPath: '/forecast'
+      preLoaderRoute: typeof AuthenticatedForecastRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/futures': {
+      id: '/_authenticated/futures'
+      path: '/futures'
+      fullPath: '/futures'
+      preLoaderRoute: typeof AuthenticatedFuturesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/map': {
+      id: '/_authenticated/map'
+      path: '/map'
+      fullPath: '/map'
+      preLoaderRoute: typeof AuthenticatedMapRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/outages': {
+      id: '/_authenticated/outages'
+      path: '/outages'
+      fullPath: '/outages'
+      preLoaderRoute: typeof AuthenticatedOutagesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/prices': {
+      id: '/_authenticated/prices'
+      path: '/prices'
+      fullPath: '/prices'
+      preLoaderRoute: typeof AuthenticatedPricesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/report': {
+      id: '/_authenticated/report'
+      path: '/report'
+      fullPath: '/report'
+      preLoaderRoute: typeof AuthenticatedReportRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/spreads': {
+      id: '/_authenticated/spreads'
+      path: '/spreads'
+      fullPath: '/spreads'
+      preLoaderRoute: typeof AuthenticatedSpreadsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/utilization': {
+      id: '/_authenticated/utilization'
+      path: '/utilization'
+      fullPath: '/utilization'
+      preLoaderRoute: typeof AuthenticatedUtilizationRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/weather': {
+      id: '/_authenticated/weather'
+      path: '/weather'
+      fullPath: '/weather'
+      preLoaderRoute: typeof AuthenticatedWeatherRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
   }
@@ -445,13 +445,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
