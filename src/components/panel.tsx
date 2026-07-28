@@ -12,7 +12,7 @@ export function Panel({
   children: ReactNode;
   actions?: ReactNode;
   dense?: boolean;
-} & HTMLAttributes<HTMLDivElement>) {
+} & Omit<HTMLAttributes<HTMLDivElement>, "title">) {
   return (
     <Card {...props} className={`bg-surface border-border/60 ${props.className ?? ""}`}>
       {title && (

@@ -4,6 +4,11 @@ import { getRequest } from "@tanstack/react-start/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
+type SupabaseAuthClient = ReturnType<typeof createClient<Database>>;
+type SupabaseClaims = NonNullable<
+  Awaited<ReturnType<SupabaseAuthClient["auth"]["getClaims"]>>["data"]
+>["claims"];
+
 type NoopQuery = {
   select: () => NoopQuery;
   eq: () => NoopQuery;
@@ -32,7 +37,7 @@ function createNoopAuthenticatedSupabase() {
 
   return {
     from: () => createQuery(),
-  } as unknown as ReturnType<typeof createClient<Database>>;
+  } as unknown as SupabaseAuthClient;
 }
 
 export const requireSupabaseAuth = createMiddleware({ type: "function" }).server(
@@ -53,7 +58,7 @@ export const requireSupabaseAuth = createMiddleware({ type: "function" }).server
         context: {
           supabase: createNoopAuthenticatedSupabase(),
           userId: "password-user",
-          claims: { sub: "password-user" },
+          claims: { sub: "password-user" } as unknown as SupabaseClaims,
         },
       });
     }
@@ -103,9 +108,9 @@ export const requireSupabaseAuth = createMiddleware({ type: "function" }).server
 
     return next({
       context: {
-        supabase,
+        supabase: supabase as SupabaseAuthClient,
         userId: data.claims.sub,
-        claims: data.claims,
+        claims: data.claims as SupabaseClaims,
       },
     });
   },

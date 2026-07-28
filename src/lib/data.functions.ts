@@ -567,6 +567,7 @@ export interface ResalePnL {
 }
 
 export const getResalePnL = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ data, context }) => {
     const days = expandRange(data?.from, data?.to, data?.day);
@@ -683,6 +684,7 @@ function monthsBetween(startISO: string, endISO: string) {
 }
 
 export const getMonthlyResaleBreakdown = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((data: RangeInput) => data ?? {})
   .handler(async ({ context, data }) => {
     const { supabase, userId } = context;
