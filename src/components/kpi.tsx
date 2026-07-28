@@ -1,6 +1,23 @@
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DataBadge } from "./data-badge";
 import type { ReactNode } from "react";
+
+export function KpiSkeleton() {
+  return (
+    <Card className="bg-surface border-border/60">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-3 w-10" />
+        </div>
+        <Skeleton className="mt-3 h-7 w-28" />
+        <Skeleton className="mt-2 h-3 w-40" />
+      </CardContent>
+    </Card>
+  );
+}
+
 
 export function KPI({
   label, value, sub, source, accent = "primary",
