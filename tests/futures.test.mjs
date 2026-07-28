@@ -52,6 +52,8 @@ await transpileModule(
 process.env.SUPABASE_URL = process.env.SUPABASE_URL ?? "https://example.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? "test-service-role";
+process.env.FUTURES_EEX_PUBLIC_RETRY_DELAY_MS =
+  process.env.FUTURES_EEX_PUBLIC_RETRY_DELAY_MS ?? "1";
 globalThis.__futuresTestSupabase = createFakeSupabase();
 await transpileModule(
   path.join(root, "src/lib/futures/eex-public-snapshot.server.ts"),
@@ -249,6 +251,28 @@ test("public EEX collection reports missing Supabase persistence configuration",
   }
 });
 
+test("public EEX collection retries rate limited widget requests", async () => {
+  resetFakeSupabase();
+  const calls = installRateLimitedThenSuccessfulFetch();
+
+  const result = await eexPublic.collectPublicEexSnapshots(true);
+  assert.equal(result.status, "current-eod");
+  assert.equal(result.fetchedRows, 1);
+  assert.equal(calls.filter((url) => url.includes("filter-data-with-scope")).length, 2);
+});
+
+test("public EEX collection falls back to stored rows when EEX is rate limited", async () => {
+  resetFakeSupabase({ snapshots: [snapshotRow()] });
+  installAlwaysRateLimitedFetch();
+
+  const result = await eexPublic.collectPublicEexSnapshots(true);
+  assert.equal(result.status, "cached");
+  assert.equal(result.fetchedRows, 0);
+  assert.equal(result.rows, 1);
+  assert.match(result.reason, /HTTP 429/);
+  assert.match(result.reason, /cached public EEX snapshot/);
+});
+
 test("stored public futures rows are ordered chronologically by delivery period", async () => {
   resetFakeSupabase({
     snapshots: [
@@ -424,11 +448,60 @@ function installFakeEexFetch() {
   return calls;
 }
 
+function installRateLimitedThenSuccessfulFetch() {
+  const calls = [];
+  let filterAttempts = 0;
+  globalThis.fetch = async (url) => {
+    const text = String(url);
+    calls.push(text);
+    if (text.includes("filter-data-with-scope")) {
+      filterAttempts += 1;
+      if (filterAttempts === 1) return errorResponse(429);
+      return jsonResponse({
+        header: [
+          "shortCode",
+          "maturity",
+          "maturityType",
+          "area",
+          "product",
+          "displayYear",
+          "displayMonth",
+          "displayQuarter",
+        ],
+        data: [["RS-AUG", "2026-08", "Month", "RS", "Base", 2026, 8, null]],
+      });
+    }
+    if (text.includes("price-ticker")) {
+      return jsonResponse({
+        header: ["settlPx", "diffSettlPx", "lastUpdatedAt", "longName"],
+        data: [[95.2, 1.1, "2026-07-28T12:00:00Z", "Serbian Power Base Aug 2026"]],
+      });
+    }
+    throw new Error(`Unexpected EEX URL ${text}`);
+  };
+  return calls;
+}
+
+function installAlwaysRateLimitedFetch() {
+  globalThis.fetch = async () => errorResponse(429);
+}
+
 function jsonResponse(payload) {
   return {
     ok: true,
     status: 200,
     json: async () => payload,
+  };
+}
+
+function errorResponse(status, retryAfter = null) {
+  return {
+    ok: false,
+    status,
+    headers: {
+      get: (name) => (name.toLowerCase() === "retry-after" ? retryAfter : null),
+    },
+    json: async () => ({}),
   };
 }
 

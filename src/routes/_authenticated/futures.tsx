@@ -71,6 +71,7 @@ function FuturesPage() {
   const [manualText, setManualText] = useState("");
   const [importResult, setImportResult] = useState<string | null>(null);
   const [refreshResult, setRefreshResult] = useState<string | null>(null);
+  const [isRefreshingSnapshot, setIsRefreshingSnapshot] = useState(false);
 
   const q = useQuery({
     queryKey: ["futures_dashboard"],
@@ -172,18 +173,29 @@ function FuturesPage() {
                 size="sm"
                 variant="outline"
                 className="gap-1.5"
-                disabled={q.isFetching}
+                disabled={q.isFetching || isRefreshingSnapshot}
                 onClick={async () => {
                   setRefreshResult(null);
-                  const result = await refreshPublicFn();
-                  const summary = result.reason
-                    ? `${result.status}: ${result.reason}`
-                    : `${result.status}: fetched ${result.fetchedRows ?? result.rows} public EEX rows, persisted ${result.persistedRows}, failed ${result.failedRows}`;
-                  setRefreshResult(summary);
-                  await q.refetch();
+                  setIsRefreshingSnapshot(true);
+                  try {
+                    const result = await refreshPublicFn();
+                    const summary = result.reason
+                      ? `${result.status}: ${result.reason}`
+                      : `${result.status}: fetched ${result.fetchedRows ?? result.rows} public EEX rows, persisted ${result.persistedRows}, failed ${result.failedRows}`;
+                    setRefreshResult(summary);
+                    await q.refetch();
+                  } catch (error) {
+                    const message =
+                      error instanceof Error ? error.message : "Public EEX refresh failed.";
+                    setRefreshResult(`unavailable: ${message}`);
+                  } finally {
+                    setIsRefreshingSnapshot(false);
+                  }
                 }}
               >
-                <RefreshCw className="h-3.5 w-3.5" />
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${isRefreshingSnapshot ? "animate-spin" : ""}`}
+                />
                 Refresh snapshot
               </Button>
             </div>

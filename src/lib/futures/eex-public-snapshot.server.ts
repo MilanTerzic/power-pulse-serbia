@@ -38,6 +38,8 @@ const EEX_AREA_BY_MARKET: Partial<Record<FuturesMarketCode, string>> = {
 const MAX_MONTHS_PER_LOAD = 3;
 const MAX_QUARTERS_PER_LOAD = 2;
 const MAX_YEARS_PER_LOAD = 2;
+const EEX_RETRY_STATUSES = new Set([429, 502, 503, 504]);
+const MAX_EEX_FETCH_ATTEMPTS = 3;
 
 let latestPublicCollection:
   | {
@@ -370,6 +372,17 @@ async function collectPublicEexSnapshotsInner(force = false): Promise<PublicColl
     };
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Public EEX collection failed.";
+    const storedFallback = await collectionResultFromStoredRows(now, reason);
+    if (storedFallback) {
+      latestPublicCollection = {
+        collectedAt: now,
+        snapshots: [],
+        status: storedFallback.status,
+        reason: storedFallback.reason,
+      };
+      await markCollectionAttempt(storedFallback.status, storedFallback.reason);
+      return storedFallback;
+    }
     latestPublicCollection = {
       collectedAt: now,
       snapshots: [],
@@ -530,21 +543,63 @@ async function fetchTickerSnapshot(
 }
 
 async function fetchEexJson(url: string, init?: RequestInit): Promise<EexJsonTable> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      accept: "application/json, text/javascript, */*; q=0.01",
-      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "user-agent": "power-pulse-serbia/1.0 public-snapshot",
-      referer: HUB_URL,
-      ...(init?.headers ?? {}),
-    },
-    signal: AbortSignal.timeout(12_000),
-  });
-  if (!response.ok) {
-    throw new Error(`EEX public endpoint returned HTTP ${response.status}`);
+  let lastError: Error | undefined;
+  for (let attempt = 1; attempt <= MAX_EEX_FETCH_ATTEMPTS; attempt += 1) {
+    const response = await fetch(url, {
+      ...init,
+      headers: {
+        accept: "application/json, text/javascript, */*; q=0.01",
+        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "user-agent": "power-pulse-serbia/1.0 public-snapshot",
+        referer: HUB_URL,
+        ...(init?.headers ?? {}),
+      },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (response.ok) return (await response.json()) as EexJsonTable;
+
+    const retryAfterMs = retryAfterHeaderMs(response.headers?.get?.("retry-after") ?? null);
+    lastError = new EexPublicHttpError(response.status, retryAfterMs);
+    if (!EEX_RETRY_STATUSES.has(response.status) || attempt === MAX_EEX_FETCH_ATTEMPTS) {
+      throw lastError;
+    }
+    await delay(retryDelayMs(attempt, retryAfterMs));
   }
-  return (await response.json()) as EexJsonTable;
+  throw lastError ?? new Error("EEX public endpoint request failed.");
+}
+
+class EexPublicHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly retryAfterMs: number | null,
+  ) {
+    const suffix =
+      status === 429
+        ? " EEX is rate limiting public snapshot requests; wait a few minutes before forcing another refresh."
+        : "";
+    super(`EEX public endpoint returned HTTP ${status}.${suffix}`);
+    this.name = "EexPublicHttpError";
+  }
+}
+
+function retryAfterHeaderMs(value: string | null) {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.max(0, timestamp - Date.now());
+}
+
+function retryDelayMs(attempt: number, retryAfterMs: number | null) {
+  if (retryAfterMs != null) return Math.min(retryAfterMs, 5_000);
+  const configured = Number(process.env.FUTURES_EEX_PUBLIC_RETRY_DELAY_MS);
+  const base = Number.isFinite(configured) && configured > 0 ? configured : 750;
+  return Math.min(base * attempt, 5_000);
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function shouldAttemptCollection() {
@@ -574,6 +629,43 @@ async function selectSnapshotRows(market: FuturesMarketCode): Promise<SnapshotRo
     .order("trading_date", { ascending: false })
     .order("collected_at", { ascending: false });
   return (data ?? []) as SnapshotRow[];
+}
+
+async function selectRecentSnapshotRows(): Promise<SnapshotRow[]> {
+  const { data } = await futuresTable<SnapshotRow>("futures_snapshots")
+    .select("*")
+    .order("trading_date", { ascending: false })
+    .order("collected_at", { ascending: false })
+    .limit(500);
+  return (data ?? []) as SnapshotRow[];
+}
+
+async function collectionResultFromStoredRows(
+  collectedAt: string,
+  providerReason: string,
+): Promise<PublicCollectionResult | null> {
+  const rows = await selectRecentSnapshotRows();
+  if (!rows.length) return null;
+  const latestTradingDate = rows.reduce(
+    (latest, row) => (row.trading_date > latest ? row.trading_date : latest),
+    rows[0].trading_date,
+  );
+  const latestRows = rows.filter((row) => row.trading_date === latestTradingDate);
+  const latestCollectionAt = latestRows.reduce(
+    (latest, row) => (row.collected_at > latest ? row.collected_at : latest),
+    latestRows[0].collected_at,
+  );
+  const stale = Date.now() - new Date(latestCollectionAt).getTime() > 36 * 60 * 60 * 1000;
+  const label = stale ? "stale" : "cached";
+  return {
+    status: label,
+    collectedAt,
+    rows: latestRows.length,
+    fetchedRows: 0,
+    persistedRows: 0,
+    failedRows: 0,
+    reason: `${providerReason} Showing ${label} public EEX snapshot from ${latestCollectionAt}.`,
+  };
 }
 
 function snapshotRowToPrice(row: SnapshotRow): FuturesPrice {
@@ -800,6 +892,8 @@ export const __testing = {
   deliveryPeriod,
   deliverySortKey,
   fetchPublicEexSnapshots,
+  retryAfterHeaderMs,
+  retryDelayMs,
   selectCurveRows,
   snapshotsToForwardCurve,
 };
