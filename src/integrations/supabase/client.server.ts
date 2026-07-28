@@ -2,7 +2,7 @@
 // Server-side Supabase client with service role key - bypasses RLS.
 // Use this for admin operations in server functions and server routes only.
 // For user-authenticated queries (with RLS), use the auth middleware instead.
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
 type NoopQuery = {
@@ -18,7 +18,7 @@ type NoopQuery = {
   single: () => Promise<{ data: null; error: null }>;
 };
 
-function createNoopSupabaseAdminClient() {
+function createNoopSupabaseAdminClient(): SupabaseClient<Database> {
   const createQuery = (): NoopQuery => {
     const query: NoopQuery = {
       select: () => query,
@@ -37,10 +37,10 @@ function createNoopSupabaseAdminClient() {
 
   return {
     from: () => createQuery(),
-  } as unknown as ReturnType<typeof createSupabaseAdminClient>;
+  } as unknown as SupabaseClient<Database>;
 }
 
-function createSupabaseAdminClient() {
+function createSupabaseAdminClient(): SupabaseClient<Database> {
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -68,9 +68,14 @@ let _supabaseAdmin: ReturnType<typeof createSupabaseAdminClient> | undefined;
 // Server-side Supabase client with service role - bypasses RLS
 // SECURITY: Only use this for trusted server-side operations, never expose to client code
 // Import like: import { supabaseAdmin } from "@/integrations/supabase/client.server";
-export const supabaseAdmin = new Proxy({} as ReturnType<typeof createSupabaseAdminClient>, {
-  get(_, prop, receiver) {
-    if (!_supabaseAdmin) _supabaseAdmin = createSupabaseAdminClient();
-    return Reflect.get(_supabaseAdmin, prop, receiver);
+// Typed loosely so server-only tables that are not part of the generated
+// Database types (e.g. futures cache tables) can still be queried.
+export const supabaseAdmin: SupabaseClient<any, any, any> = new Proxy(
+  {} as SupabaseClient<any, any, any>,
+  {
+    get(_, prop, receiver) {
+      if (!_supabaseAdmin) _supabaseAdmin = createSupabaseAdminClient();
+      return Reflect.get(_supabaseAdmin, prop, receiver);
+    },
   },
-});
+);
