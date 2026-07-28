@@ -9,6 +9,7 @@ import ts from "typescript";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outdir = path.join(tmpdir(), "power-pulse-futures-tests");
 const libOutdir = path.join(outdir, "lib");
+const futuresOutdir = path.join(libOutdir, "futures");
 
 async function transpileModule(sourcePath, outPath, replacements = []) {
   let source = await readFile(sourcePath, "utf8");
@@ -24,7 +25,7 @@ async function transpileModule(sourcePath, outPath, replacements = []) {
   await writeFile(outPath, result.outputText, "utf8");
 }
 
-await mkdir(libOutdir, { recursive: true });
+await mkdir(futuresOutdir, { recursive: true });
 await transpileModule(
   path.join(root, "src/lib/futures-markets.ts"),
   path.join(libOutdir, "futures-markets.mjs"),
@@ -48,12 +49,31 @@ await transpileModule(
     ['from "./futures"', 'from "./futures.mjs"'],
   ],
 );
+process.env.SUPABASE_URL = process.env.SUPABASE_URL ?? "https://example.supabase.co";
+process.env.SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? "test-service-role";
+globalThis.__futuresTestSupabase = createFakeSupabase();
+await transpileModule(
+  path.join(root, "src/lib/futures/eex-public-snapshot.server.ts"),
+  path.join(futuresOutdir, "eex-public-snapshot.server.mjs"),
+  [
+    [
+      'import { supabaseAdmin } from "@/integrations/supabase/client.server";',
+      "const supabaseAdmin = globalThis.__futuresTestSupabase;",
+    ],
+    ['from "../futures-markets"', 'from "../futures-markets.mjs"'],
+    ['from "../futures"', 'from "../futures.mjs"'],
+  ],
+);
 
 const futures = await import(pathToFileURL(path.join(libOutdir, "futures.mjs")).href);
 const markets = await import(pathToFileURL(path.join(libOutdir, "futures-markets.mjs")).href);
 const parser = await import(pathToFileURL(path.join(libOutdir, "futures-parser.mjs")).href);
 const publicParser = await import(
   pathToFileURL(path.join(libOutdir, "futures-public-parser.mjs")).href
+);
+const eexPublic = await import(
+  pathToFileURL(path.join(futuresOutdir, "eex-public-snapshot.server.mjs")).href
 );
 const fixture = JSON.parse(
   await readFile(path.join(root, "tests/fixtures/eex-forward-curve.sample.json"), "utf8"),
@@ -158,3 +178,264 @@ test("manual/public snapshot import removes duplicate records without inventing 
   assert.equal(snapshots[0].provider, "manual-import");
   assert.equal(snapshots[0].askPrice, null);
 });
+
+test("public EEX selector filters expired contracts and sorts by delivery period", () => {
+  const selected = eexPublic.__testing.selectCurveRows([
+    filterRow({ shortCode: "RS-SEP", maturity: "Z", displayMonth: 9 }),
+    filterRow({ shortCode: "RS-AUG", maturity: "A", displayMonth: 8 }),
+    filterRow({ shortCode: "RS-OLD", maturity: "OLD", displayMonth: 6 }),
+  ]);
+
+  assert.deepEqual(
+    selected.map((row) => row.shortCode),
+    ["RS-AUG", "RS-SEP"],
+  );
+});
+
+test("public EEX collection deduplicates concurrent forced refreshes", async () => {
+  resetFakeSupabase();
+  const calls = installFakeEexFetch();
+
+  const [first, second] = await Promise.all([
+    eexPublic.collectPublicEexSnapshots(true),
+    eexPublic.collectPublicEexSnapshots(true),
+  ]);
+
+  assert.equal(first.status, "current-eod");
+  assert.equal(second.status, "current-eod");
+  assert.equal(first.fetchedRows, 1);
+  assert.equal(calls.filter((url) => url.includes("filter-data-with-scope")).length, 1);
+  assert.equal(
+    calls.some((url) => url.includes("table-data")),
+    false,
+  );
+});
+
+test("public EEX collection reports persistence errors and serves fresh memory rows", async () => {
+  resetFakeSupabase({ upsertError: "database unavailable" });
+  installFakeEexFetch();
+
+  const result = await eexPublic.collectPublicEexSnapshots(true);
+  assert.equal(result.status, "partial");
+  assert.equal(result.fetchedRows, 1);
+  assert.equal(result.persistedRows, 0);
+  assert.equal(result.failedRows, 1);
+  assert.match(result.reason, /failed to persist/i);
+
+  const provider = new eexPublic.EexPublicSnapshotProvider();
+  const curve = await provider.getCurrentForwardCurve("RS");
+  assert.equal(curve.contracts.length, 1);
+  assert.equal(curve.status, "current-eod");
+  assert.match(curve.reason, /before database persistence/i);
+});
+
+test("public EEX collection reports missing Supabase persistence configuration", async () => {
+  resetFakeSupabase();
+  installFakeEexFetch();
+  const previousUrl = process.env.SUPABASE_URL;
+  const previousServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  try {
+    const result = await eexPublic.collectPublicEexSnapshots(true);
+    assert.equal(result.status, "partial");
+    assert.equal(result.fetchedRows, 1);
+    assert.equal(result.persistedRows, 0);
+    assert.equal(result.failedRows, 1);
+    assert.match(result.reason, /SUPABASE_SERVICE_ROLE_KEY/);
+  } finally {
+    restoreEnv("SUPABASE_URL", previousUrl);
+    restoreEnv("SUPABASE_SERVICE_ROLE_KEY", previousServiceKey);
+  }
+});
+
+test("stored public futures rows are ordered chronologically by delivery period", async () => {
+  resetFakeSupabase({
+    snapshots: [
+      snapshotRow({
+        contract_name: "RS Base Sep-26",
+        external_contract_id: "RS:SEP",
+        delivery_start: "2026-09-01",
+      }),
+      snapshotRow({
+        contract_name: "RS Base Aug-26",
+        external_contract_id: "RS:AUG",
+        delivery_start: "2026-08-01",
+      }),
+    ],
+  });
+
+  const curve = await eexPublic.getLatestStoredForwardCurve("RS");
+  assert.deepEqual(
+    curve.contracts.map((row) => row.contract.contractName),
+    ["RS Base Aug-26", "RS Base Sep-26"],
+  );
+});
+
+function filterRow(overrides = {}) {
+  return {
+    shortCode: "RS-AUG",
+    maturity: "2026-08",
+    maturityType: "Month",
+    area: "RS",
+    product: "Base",
+    displayYear: 2026,
+    displayMonth: 8,
+    displayQuarter: null,
+    ...overrides,
+  };
+}
+
+function snapshotRow(overrides = {}) {
+  return {
+    provider: "eex-public-snapshot",
+    market_code: "RS",
+    exchange: "EEX/PXE",
+    product_name: "EEX-PXE Serbian Power Future",
+    external_contract_id: "RS:AUG",
+    contract_name: "RS Base Aug-26",
+    load_type: "base",
+    maturity_type: "month",
+    delivery_start: "2026-08-01",
+    delivery_end: "2026-08-31",
+    trading_date: "2026-07-28",
+    settlement_price: 95.2,
+    close_price: 94.1,
+    last_price: null,
+    bid_price: null,
+    ask_price: null,
+    volume: null,
+    open_interest: null,
+    currency: "EUR",
+    unit: "MWh",
+    source_url: "https://www.eex.com/en/market-data/market-data-hub",
+    source_timestamp: "2026-07-28T12:00:00Z",
+    collected_at: "2026-07-28T12:05:00Z",
+    ...overrides,
+  };
+}
+
+function createFakeSupabase(initial = {}) {
+  const state = {
+    snapshots: initial.snapshots ?? [],
+    runs: initial.runs ?? [],
+    upsertError: initial.upsertError ?? null,
+  };
+  return {
+    __state: state,
+    from(table) {
+      return createFakeQuery(state, table);
+    },
+  };
+}
+
+function resetFakeSupabase(initial = {}) {
+  globalThis.__futuresTestSupabase.__state.snapshots = initial.snapshots ?? [];
+  globalThis.__futuresTestSupabase.__state.runs = initial.runs ?? [];
+  globalThis.__futuresTestSupabase.__state.upsertError = initial.upsertError ?? null;
+}
+
+function createFakeQuery(state, table) {
+  const query = {
+    filters: [],
+    orders: [],
+    maxRows: null,
+    select() {
+      return query;
+    },
+    eq(column, value) {
+      query.filters.push({ column, value });
+      return query;
+    },
+    order(column, options = {}) {
+      query.orders.push({ column, ascending: options.ascending ?? true });
+      return query;
+    },
+    limit(count) {
+      query.maxRows = count;
+      return query;
+    },
+    maybeSingle: async () => {
+      const rows = applyQuery(state, table, query);
+      return { data: rows[0] ?? null, error: null };
+    },
+    insert: async (value) => {
+      if (table === "futures_collection_runs") state.runs.push(value);
+      return { data: value, error: null };
+    },
+    upsert: async (value) => {
+      if (state.upsertError) return { data: null, error: { message: state.upsertError } };
+      if (table === "futures_snapshots") state.snapshots.push(value);
+      return { data: value, error: null };
+    },
+    then(resolve, reject) {
+      return Promise.resolve({ data: applyQuery(state, table, query), error: null }).then(
+        resolve,
+        reject,
+      );
+    },
+  };
+  return query;
+}
+
+function applyQuery(state, table, query) {
+  let rows = table === "futures_snapshots" ? [...state.snapshots] : [...state.runs];
+  for (const filter of query.filters) {
+    rows = rows.filter((row) => row[filter.column] === filter.value);
+  }
+  for (const order of query.orders) {
+    rows.sort((a, b) => {
+      const result = String(a[order.column] ?? "").localeCompare(String(b[order.column] ?? ""));
+      return order.ascending ? result : -result;
+    });
+  }
+  if (query.maxRows != null) rows = rows.slice(0, query.maxRows);
+  return rows;
+}
+
+function installFakeEexFetch() {
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    const text = String(url);
+    calls.push(text);
+    if (text.includes("filter-data-with-scope")) {
+      return jsonResponse({
+        header: [
+          "shortCode",
+          "maturity",
+          "maturityType",
+          "area",
+          "product",
+          "displayYear",
+          "displayMonth",
+          "displayQuarter",
+        ],
+        data: [["RS-AUG", "2026-08", "Month", "RS", "Base", 2026, 8, null]],
+      });
+    }
+    if (text.includes("price-ticker")) {
+      return jsonResponse({
+        header: ["settlPx", "diffSettlPx", "lastUpdatedAt", "longName"],
+        data: [[95.2, 1.1, "2026-07-28T12:00:00Z", "Serbian Power Base Aug 2026"]],
+      });
+    }
+    throw new Error(`Unexpected EEX URL ${text}`);
+  };
+  return calls;
+}
+
+function jsonResponse(payload) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => payload,
+  };
+}
+
+function restoreEnv(name, value) {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}

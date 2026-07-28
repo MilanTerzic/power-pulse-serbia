@@ -70,6 +70,7 @@ function FuturesPage() {
   );
   const [manualText, setManualText] = useState("");
   const [importResult, setImportResult] = useState<string | null>(null);
+  const [refreshResult, setRefreshResult] = useState<string | null>(null);
 
   const q = useQuery({
     queryKey: ["futures_dashboard"],
@@ -173,7 +174,12 @@ function FuturesPage() {
                 className="gap-1.5"
                 disabled={q.isFetching}
                 onClick={async () => {
-                  await refreshPublicFn();
+                  setRefreshResult(null);
+                  const result = await refreshPublicFn();
+                  const summary = result.reason
+                    ? `${result.status}: ${result.reason}`
+                    : `${result.status}: fetched ${result.fetchedRows ?? result.rows} public EEX rows, persisted ${result.persistedRows}, failed ${result.failedRows}`;
+                  setRefreshResult(summary);
                   await q.refetch();
                 }}
               >
@@ -182,6 +188,11 @@ function FuturesPage() {
               </Button>
             </div>
           </div>
+          {refreshResult && (
+            <div className="mt-3 rounded border border-border/60 bg-surface-2 px-3 py-2 text-xs text-muted-foreground">
+              {refreshResult}
+            </div>
+          )}
           <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-4">
             <Metric label="Provider" value={q.data?.provider ?? "eex-public-snapshot"} />
             <Metric label="Latest trading date" value={q.data?.latestTradingDate ?? "N/A"} />

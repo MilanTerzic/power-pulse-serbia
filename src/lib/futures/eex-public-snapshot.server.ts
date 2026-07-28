@@ -35,9 +35,29 @@ const EEX_AREA_BY_MARKET: Partial<Record<FuturesMarketCode, string>> = {
   AT: "AT",
   DE_LU: "DE",
 };
-const MAX_MONTHS_PER_LOAD = 4;
-const MAX_QUARTERS_PER_LOAD = 3;
-const MAX_YEARS_PER_LOAD = 3;
+const MAX_MONTHS_PER_LOAD = 3;
+const MAX_QUARTERS_PER_LOAD = 2;
+const MAX_YEARS_PER_LOAD = 2;
+
+let latestPublicCollection:
+  | {
+      collectedAt: string;
+      snapshots: FuturesSnapshot[];
+      status: string;
+      reason: string | null;
+    }
+  | undefined;
+export type PublicCollectionResult = {
+  status: string;
+  collectedAt: string;
+  rows: number;
+  fetchedRows: number;
+  persistedRows: number;
+  failedRows: number;
+  reason: string | null;
+};
+
+let activeCollection: Promise<PublicCollectionResult> | undefined;
 
 type SnapshotRow = {
   provider: FuturesSnapshot["provider"];
@@ -108,7 +128,6 @@ export class EexPublicSnapshotProvider implements FuturesDataProvider {
   providerType = "eex-public-snapshot" as const;
 
   async getCurrentForwardCurve(market: FuturesMarketCode): Promise<ForwardCurveResult> {
-    await maybeCollectPublicSnapshots();
     return getLatestStoredForwardCurve(market);
   }
 
@@ -168,6 +187,16 @@ export async function getLatestStoredForwardCurve(
 
   const rows = await selectSnapshotRows(market);
   if (!rows.length) {
+    const freshRows = latestPublicCollection?.snapshots.filter(
+      (snapshot) => snapshot.marketCode === market,
+    );
+    if (freshRows?.length) {
+      return snapshotsToForwardCurve(
+        market,
+        freshRows,
+        "Fresh public EEX rows are displayed before database persistence is available.",
+      );
+    }
     return {
       market,
       tradingDate: null,
@@ -198,7 +227,9 @@ export async function getLatestStoredForwardCurve(
   return {
     market,
     tradingDate: latestTradingDate,
-    contracts: latestRows.map(snapshotRowToPrice),
+    contracts: latestRows
+      .toSorted((a, b) => (a.delivery_start ?? "").localeCompare(b.delivery_start ?? ""))
+      .map(snapshotRowToPrice),
     source: latestRows[0].provider === "manual-import" ? "Manual import" : "EEX Market Data Hub",
     sourceType:
       latestRows[0].provider === "manual-import"
@@ -214,8 +245,17 @@ export async function getLatestStoredForwardCurve(
 }
 
 export async function upsertFuturesSnapshots(snapshots: FuturesSnapshot[]) {
+  if (!supabasePersistenceConfigured()) {
+    return {
+      attempted: snapshots.length,
+      failed: snapshots.length,
+      errors: [missingSupabasePersistenceReason()],
+    };
+  }
+
+  const errors: string[] = [];
   for (const snapshot of snapshots) {
-    await futuresTable<SnapshotRow>("futures_snapshots").upsert(
+    const result = await futuresTable<SnapshotRow>("futures_snapshots").upsert(
       {
         provider: snapshot.provider,
         market_code: snapshot.marketCode,
@@ -243,16 +283,46 @@ export async function upsertFuturesSnapshots(snapshots: FuturesSnapshot[]) {
       },
       { onConflict: "provider,market_code,external_contract_id,trading_date" },
     );
+    const error = (result as { error?: { message?: string } | null }).error;
+    if (error) {
+      errors.push(
+        `${snapshot.marketCode} ${snapshot.contractName}: ${error.message ?? "Supabase upsert failed"}`,
+      );
+    }
   }
+  return { attempted: snapshots.length, failed: errors.length, errors };
 }
 
-export async function collectPublicEexSnapshots(force = false) {
+function supabasePersistenceConfigured() {
+  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function missingSupabasePersistenceReason() {
+  const missing = [
+    ...(!process.env.SUPABASE_URL ? ["SUPABASE_URL"] : []),
+    ...(!process.env.SUPABASE_SERVICE_ROLE_KEY ? ["SUPABASE_SERVICE_ROLE_KEY"] : []),
+  ];
+  return `Missing Supabase environment variable(s): ${missing.join(", ")}. Futures rows were fetched but not persisted.`;
+}
+
+export async function collectPublicEexSnapshots(force = false): Promise<PublicCollectionResult> {
+  if (activeCollection) return activeCollection;
+  activeCollection = collectPublicEexSnapshotsInner(force).finally(() => {
+    activeCollection = undefined;
+  });
+  return activeCollection;
+}
+
+async function collectPublicEexSnapshotsInner(force = false): Promise<PublicCollectionResult> {
   const now = new Date().toISOString();
   if (!publicSnapshotModeEnabled()) {
     return {
       status: "public-extraction-unavailable",
       collectedAt: now,
       rows: 0,
+      fetchedRows: 0,
+      persistedRows: 0,
+      failedRows: 0,
       reason: "Public snapshot mode disabled.",
     };
   }
@@ -261,6 +331,9 @@ export async function collectPublicEexSnapshots(force = false) {
       status: "cached",
       collectedAt: now,
       rows: 0,
+      fetchedRows: 0,
+      persistedRows: 0,
+      failedRows: 0,
       reason: "Minimum collection interval not elapsed.",
     };
   }
@@ -268,17 +341,51 @@ export async function collectPublicEexSnapshots(force = false) {
   await markCollectionAttempt("started", null);
   try {
     const snapshots = await fetchPublicEexSnapshots(now);
-    if (snapshots.length) await upsertFuturesSnapshots(snapshots);
-    const status = snapshots.length ? "current-eod" : "public-extraction-unavailable";
+    const persistence = snapshots.length
+      ? await upsertFuturesSnapshots(snapshots)
+      : { attempted: 0, failed: 0, errors: [] };
+    const status =
+      snapshots.length && persistence.failed === 0
+        ? "current-eod"
+        : snapshots.length
+          ? "partial"
+          : "public-extraction-unavailable";
     const reason = snapshots.length
-      ? null
+      ? persistence.failed
+        ? `Fetched ${snapshots.length} public EEX rows, but ${persistence.failed} failed to persist. ${persistence.errors
+            .slice(0, 3)
+            .join(" | ")}`
+        : null
       : "No usable futures rows returned by the public EEX widget endpoints.";
+    latestPublicCollection = { collectedAt: now, snapshots, status, reason };
     await markCollectionAttempt(status, reason);
-    return { status, collectedAt: now, rows: snapshots.length, reason };
+    return {
+      status,
+      collectedAt: now,
+      rows: snapshots.length,
+      fetchedRows: snapshots.length,
+      persistedRows: snapshots.length - persistence.failed,
+      failedRows: persistence.failed,
+      reason,
+    };
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Public EEX collection failed.";
+    latestPublicCollection = {
+      collectedAt: now,
+      snapshots: [],
+      status: "public-extraction-unavailable",
+      reason,
+    };
     await markCollectionAttempt("public-extraction-unavailable", reason);
-    return { status: "public-extraction-unavailable", collectedAt: now, rows: 0, reason };
+    return {
+      status: "public-extraction-unavailable",
+      collectedAt: now,
+      rows: 0,
+      fetchedRows: 0,
+      persistedRows: 0,
+      failedRows: 0,
+      reason,
+    };
   }
 }
 
@@ -291,7 +398,7 @@ async function fetchPublicEexSnapshots(collectedAt: string): Promise<FuturesSnap
       const snapshot = await fetchTickerSnapshot(row, collectedAt);
       if (snapshot) snapshots.push(snapshot);
     }),
-    6,
+    8,
   );
   return snapshots;
 }
@@ -338,6 +445,7 @@ async function fetchFilterRows(): Promise<FilterRow[]> {
 
 function selectCurveRows(rows: FilterRow[]) {
   const selected: FilterRow[] = [];
+  const today = new Date().toISOString().slice(0, 10);
   for (const market of PUBLIC_MARKETS) {
     const area = EEX_AREA_BY_MARKET[market];
     if (!area) continue;
@@ -347,9 +455,10 @@ function selectCurveRows(rows: FilterRow[]) {
           (row) =>
             row.area === area &&
             row.product === product &&
-            ["Month", "Quarter", "Year"].includes(row.maturityType),
+            ["Month", "Quarter", "Year"].includes(row.maturityType) &&
+            !deliveryExpired(row, today),
         )
-        .sort((a, b) => a.maturity.localeCompare(b.maturity));
+        .sort((a, b) => deliverySortKey(a).localeCompare(deliverySortKey(b)));
       selected.push(
         ...scoped.filter((row) => row.maturityType === "Month").slice(0, MAX_MONTHS_PER_LOAD),
       );
@@ -391,7 +500,6 @@ async function fetchTickerSnapshot(
   if (settlementPrice == null) return null;
 
   const tradingDate = lastUpdatedAt ? lastUpdatedAt.slice(0, 10) : collectedAt.slice(0, 10);
-  const table = await fetchTableData(row, tradingDate).catch(() => null);
   const delivery = deliveryPeriod(row);
   const previousSettlement = diff == null ? null : settlementPrice - diff;
   return {
@@ -411,37 +519,13 @@ async function fetchTickerSnapshot(
     lastPrice: null,
     bidPrice: null,
     askPrice: null,
-    volume: table?.volume ?? null,
-    openInterest: table?.openInterest ?? null,
+    volume: null,
+    openInterest: null,
     currency: "EUR",
     unit: "MWh",
     sourceUrl: HUB_URL,
     sourceTimestamp: lastUpdatedAt,
     collectedAt,
-  };
-}
-
-async function fetchTableData(row: FilterRow, tradingDate: string) {
-  const params = new URLSearchParams({
-    shortCode: row.shortCode,
-    commodity: "POWER",
-    pricing: "F",
-    area: row.area,
-    product: row.product,
-    maturity: row.maturity,
-    startDate: tradingDate,
-    endDate: tradingDate,
-    maturityType: row.maturityType,
-    isRolling: "true",
-  });
-  const table = await fetchEexJson(`${PUBLIC_API_URL}/market-data/table-data?${params}`);
-  const header = table.header ?? [];
-  const index = indexByHeader(header);
-  const first = table.data?.[0];
-  if (!first) return null;
-  return {
-    volume: numberOrNull(first[index.totVolTrdd]),
-    openInterest: numberOrNull(first[index.grossOpenInt]),
   };
 }
 
@@ -461,12 +545,6 @@ async function fetchEexJson(url: string, init?: RequestInit): Promise<EexJsonTab
     throw new Error(`EEX public endpoint returned HTTP ${response.status}`);
   }
   return (await response.json()) as EexJsonTable;
-}
-
-async function maybeCollectPublicSnapshots() {
-  if (publicSnapshotModeEnabled() && (await shouldAttemptCollection())) {
-    await collectPublicEexSnapshots(false);
-  }
 }
 
 async function shouldAttemptCollection() {
@@ -533,6 +611,85 @@ function snapshotRowToPrice(row: SnapshotRow): FuturesPrice {
     status: row.provider === "manual-import" ? "manual-import" : "cached",
     providerType: row.provider,
     sourceUrl: row.source_url,
+  };
+}
+
+function snapshotsToForwardCurve(
+  market: FuturesMarketCode,
+  snapshots: FuturesSnapshot[],
+  reason?: string,
+): ForwardCurveResult {
+  const sorted = [...snapshots].sort((a, b) => {
+    const byTradingDate = b.tradingDate.localeCompare(a.tradingDate);
+    if (byTradingDate !== 0) return byTradingDate;
+    return (a.deliveryStart ?? "").localeCompare(b.deliveryStart ?? "");
+  });
+  const latestTradingDate = sorted[0]?.tradingDate ?? null;
+  const latestRows = latestTradingDate
+    ? sorted.filter((snapshot) => snapshot.tradingDate === latestTradingDate)
+    : sorted;
+  const firstHistoricalDate = sorted.reduce(
+    (first, snapshot) => (snapshot.tradingDate < first ? snapshot.tradingDate : first),
+    sorted[0]?.tradingDate ?? "",
+  );
+  const latestCollectionAt = latestRows.reduce(
+    (latest, snapshot) => (snapshot.collectedAt > latest ? snapshot.collectedAt : latest),
+    latestRows[0]?.collectedAt ?? new Date().toISOString(),
+  );
+
+  return {
+    market,
+    tradingDate: latestTradingDate,
+    contracts: latestRows
+      .toSorted((a, b) => (a.deliveryStart ?? "").localeCompare(b.deliveryStart ?? ""))
+      .map(snapshotToPrice),
+    source: "EEX Market Data Hub",
+    sourceType: "Public EEX Snapshot Mode",
+    fetchedAt: latestCollectionAt,
+    status: "current-eod",
+    providerType: "eex-public-snapshot",
+    latestCollectionAt,
+    firstHistoricalDate,
+    reason,
+  };
+}
+
+function snapshotToPrice(snapshot: FuturesSnapshot): FuturesPrice {
+  return {
+    contract: {
+      market: snapshot.marketCode,
+      exchange: snapshot.exchange,
+      productName: snapshot.productName,
+      externalContractId:
+        snapshot.externalContractId ?? `${snapshot.marketCode}:${snapshot.contractName}`,
+      contractName: snapshot.contractName,
+      loadType: snapshot.loadType,
+      maturityType: snapshot.maturityType,
+      deliveryStart: snapshot.deliveryStart ?? "",
+      deliveryEnd: snapshot.deliveryEnd ?? "",
+      currency: snapshot.currency,
+      unit: snapshot.unit,
+    },
+    tradingDate: snapshot.tradingDate,
+    settlementPrice: snapshot.settlementPrice,
+    previousSettlementPrice:
+      snapshot.provider === "eex-public-snapshot" ? snapshot.closePrice : null,
+    closePrice: snapshot.provider === "eex-public-snapshot" ? null : snapshot.closePrice,
+    lastPrice: snapshot.lastPrice,
+    bidPrice: snapshot.bidPrice,
+    askPrice: snapshot.askPrice,
+    volume: snapshot.volume,
+    openInterest: snapshot.openInterest,
+    source: snapshot.provider === "manual-import" ? "Manual import" : "EEX Market Data Hub",
+    sourceType:
+      snapshot.provider === "manual-import"
+        ? "Manually imported futures reference data"
+        : "Public EEX Snapshot Mode",
+    sourceTimestamp: snapshot.sourceTimestamp ?? undefined,
+    fetchedAt: snapshot.collectedAt,
+    status: snapshot.provider === "manual-import" ? "manual-import" : "current-eod",
+    providerType: snapshot.provider,
+    sourceUrl: snapshot.sourceUrl,
   };
 }
 
@@ -608,6 +765,15 @@ function deliveryPeriod(row: FilterRow) {
   return { start: null, end: null };
 }
 
+function deliverySortKey(row: FilterRow) {
+  return deliveryPeriod(row).start ?? `${row.displayYear ?? 9999}-${row.maturity}`;
+}
+
+function deliveryExpired(row: FilterRow, today: string) {
+  const end = deliveryPeriod(row).end;
+  return Boolean(end && end < today);
+}
+
 function lastDayOfMonth(year: number, month: number) {
   const date = new Date(Date.UTC(year, month, 0));
   return date.toISOString().slice(0, 10);
@@ -627,3 +793,13 @@ async function allSettledBounded<T>(tasks: Array<() => Promise<T>>, concurrency:
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
 }
+
+export const __testing = {
+  collectPublicEexSnapshotsInner,
+  deliveryExpired,
+  deliveryPeriod,
+  deliverySortKey,
+  fetchPublicEexSnapshots,
+  selectCurveRows,
+  snapshotsToForwardCurve,
+};
