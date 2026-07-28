@@ -13,7 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { TopBar } from "@/components/top-bar";
-import { KPI } from "@/components/kpi";
+import { KPI, KpiSkeleton } from "@/components/kpi";
 import { Panel } from "@/components/panel";
 import { Button } from "@/components/ui/button";
 import { DataBadge } from "@/components/data-badge";
