@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -615,8 +615,8 @@ function SpreadHeatmap({
           </div>
         ))}
         {visibleRows.map((zone) => (
-          <>
-            <div key={`${zone}-label`} className="py-1 pr-2 text-xs">
+          <Fragment key={zone}>
+            <div className="py-1 pr-2 text-xs">
               {zone}
             </div>
             {data.slice(0, 48).map((row) => {
@@ -633,7 +633,7 @@ function SpreadHeatmap({
                 />
               );
             })}
-          </>
+          </Fragment>
         ))}
       </div>
     </div>
@@ -691,11 +691,11 @@ function buildChartData(
 ) {
   const byInterval = new Map<string, Record<string, number | string | null>>();
   const rsPoints = prices.find((price) => price.zone === "RS")?.data.points ?? [];
-  const rsByInterval = new Map(rsPoints.map((point) => [point.ts, point.price]));
+  const rsByInterval = new Map(rsPoints.map((point) => [localIntervalKey(point.ts), point.price]));
   for (const zone of prices) {
     if (!activeZones.includes(zone.zone as PriceMarketCode)) continue;
     for (const point of zone.data.points) {
-      const key = point.ts;
+      const key = localIntervalKey(point.ts);
       const row = byInterval.get(key) ?? {
         ts: point.ts,
         t: new Date(point.ts).toLocaleString("en-GB", {
