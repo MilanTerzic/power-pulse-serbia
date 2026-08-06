@@ -176,11 +176,31 @@ function PnlTab({
   end: string;
 }) {
   const fn = useServerFn(getCbcPnl);
-  const { data, isLoading } = useQuery({
-    queryKey: ["cbc-pnl", start, end, positions, modes],
-    queryFn: () => fn({ data: { start, end, positions, modes } }),
+  const { data: raw, isLoading } = useQuery({
+    // modes are applied client-side so switching strategy is instant and persisted
+    queryKey: ["cbc-pnl", start, end, positions],
+    queryFn: () => fn({ data: { start, end, positions, modes: {} } }),
     enabled: positions.length > 0,
   });
+
+  const data = useMemo(() => {
+    if (!raw) return raw;
+    return {
+      ...raw,
+      positions: raw.positions.map((p) => ({
+        ...p,
+        rows: p.rows.map((r) => {
+          const mode = modes[`${r.position_id}:${r.month}`] ?? r.mode;
+          const resale = mode === "daily" ? r.daily_price : r.monthly_price;
+          const pnl =
+            resale != null && r.annual_price != null
+              ? (resale - r.annual_price) * r.mw * r.hours
+              : null;
+          return { ...r, mode, resale_price: resale, pnl };
+        }),
+      })),
+    };
+  }, [raw, modes]);
 
   const totals = useMemo(() => {
     const rows = data?.positions.flatMap((p) => p.rows) ?? [];
@@ -190,6 +210,7 @@ function PnlTab({
       mwh: rows.reduce((s, r) => s + r.mw * r.hours, 0),
     };
   }, [data]);
+
 
   if (!positions.length) return <Panel title="Resale PnL">Add a position first.</Panel>;
   if (isLoading || !data) return <Panel title="Resale PnL">Loading auction data…</Panel>;
