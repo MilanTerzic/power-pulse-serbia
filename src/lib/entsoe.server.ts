@@ -262,25 +262,60 @@ function parseTimeSeriesIntervals(xml: string): Array<{
   return out.sort((a, b) => a.ts.localeCompare(b.ts));
 }
 
+/**
+ * A25 explicit-allocation summary.
+ * ENTSO-E publishes these curves as curveType A03 (variable-sized blocks): a Point
+ * holds its value until the next declared position, and positions are sparse.
+ * Averaging only the declared points over-weights short blocks, so we step-fill
+ * each block across the period slots and take a duration-weighted mean.
+ */
 function parseAllocationSummary(xml: string): {
   price_eur_mwh: number | null;
   quantity_mw: number | null;
 } {
   const clean = stripNs(xml);
-  const prices: number[] = [];
-  const quantities: number[] = [];
+  let priceSum = 0;
+  let priceSlots = 0;
+  let qtySum = 0;
+  let qtySlots = 0;
   for (const ts of tagAll(clean, "TimeSeries")) {
     for (const period of tagAll(ts, "Period")) {
-      for (const pt of tagAll(period, "Point")) {
-        const price = parseFloat(tagOne(pt, "price.amount") ?? "");
-        const quantity = parseFloat(tagOne(pt, "quantity") ?? "");
-        if (Number.isFinite(price)) prices.push(price);
-        if (Number.isFinite(quantity)) quantities.push(quantity);
+      const resMin = parseResolutionMinutes(tagOne(period, "resolution"));
+      const startMs = Date.parse(tagOne(period, "start") ?? "");
+      const endMs = Date.parse(tagOne(period, "end") ?? "");
+      const points = tagAll(period, "Point")
+        .map((pt) => ({
+          pos: parseInt(tagOne(pt, "position") ?? "1", 10),
+          price: parseFloat(tagOne(pt, "price.amount") ?? ""),
+          quantity: parseFloat(tagOne(pt, "quantity") ?? ""),
+        }))
+        .filter((p) => Number.isFinite(p.pos))
+        .sort((a, b) => a.pos - b.pos);
+      if (!points.length) continue;
+      const totalSlots =
+        Number.isFinite(startMs) && Number.isFinite(endMs) && resMin > 0
+          ? Math.max(Math.round((endMs - startMs) / (resMin * 60_000)), points[points.length - 1].pos)
+          : points[points.length - 1].pos;
+      for (let i = 0; i < points.length; i++) {
+        const span = (points[i + 1]?.pos ?? totalSlots + 1) - points[i].pos;
+        if (span <= 0) continue;
+        if (Number.isFinite(points[i].price)) {
+          priceSum += points[i].price * span;
+          priceSlots += span;
+        }
+        if (Number.isFinite(points[i].quantity)) {
+          qtySum += points[i].quantity * span;
+          qtySlots += span;
+        }
       }
     }
   }
-  return { price_eur_mwh: avg(prices), quantity_mw: avg(quantities) };
+  return {
+    price_eur_mwh: priceSlots ? priceSum / priceSlots : null,
+    quantity_mw: qtySlots ? qtySum / qtySlots : null,
+  };
 }
+
 
 // --- Public fetchers --------------------------------------------------------
 export interface PriceSeries {
